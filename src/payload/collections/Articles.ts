@@ -48,9 +48,10 @@ export const Articles: CollectionConfig = {
     },
     {
       name: 'content',
-      type: 'richText',
+      type: 'textarea',
       required: true,
       label: 'Full Content',
+      maxLength: 1000000, // Allow up to 1 million characters
     },
     {
       name: 'date',

@@ -61,3 +61,6 @@ missing_articles.txt
 
 .vercel
 .env*.local
+
+.vercel
+.env*.local

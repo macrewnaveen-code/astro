@@ -6,7 +6,7 @@
 export const payloadApiUrl = process.env.PUBLIC_PAYLOAD_API_URL ||
   (process.env.NODE_ENV === 'development'
     ? 'http://localhost:3000/api'
-    : 'https://payloadcms-pi.vercel.app/api');
+    : '/api');
 
 /**
  * Fetch data from Payload CMS API
