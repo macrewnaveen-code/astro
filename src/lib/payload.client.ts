@@ -3,7 +3,10 @@
  * Temporary placeholder - will be configured with real Payload API
  */
 
-export const payloadApiUrl = process.env.PUBLIC_PAYLOAD_API_URL || 'http://localhost:3000/api';
+export const payloadApiUrl = process.env.PUBLIC_PAYLOAD_API_URL ||
+  (process.env.NODE_ENV === 'development'
+    ? 'http://localhost:3000/api'
+    : 'https://payloadcms-pi.vercel.app/api');
 
 /**
  * Fetch data from Payload CMS API
@@ -48,7 +51,10 @@ export async function payloadFetch<T>({
       console.warn(`Payload API error: ${res.status} ${res.statusText} - falling back to local mongo proxy`);
       // try local mongo proxy fallback
       try {
-        const proxyRes = await fetch(`http://localhost:3000/api/${collection}`);
+        const fallbackUrl = process.env.NODE_ENV === 'development'
+          ? 'http://localhost:3000/api'
+          : 'https://payloadcms-pi.vercel.app/api';
+        const proxyRes = await fetch(`${fallbackUrl}/${collection}`);
         if (proxyRes.ok) {
           const proxyData = await proxyRes.json();
           if (proxyData && Array.isArray(proxyData.docs)) return proxyData.docs as any;
