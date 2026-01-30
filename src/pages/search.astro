@@ -1,0 +1,321 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { t as translate } from "../i18n";
+import { processArticleImageUrl } from "../utils/cdnUrlReplacer";
+
+export const prerender = false;
+
+// Detect language from request headers or default to 'en'
+const url = new URL(Astro.request.url);
+const pathname = url.pathname;
+const lang = 'en';
+const searchQuery = url.searchParams.get('q') || '';
+
+const title = translate('nav.search', lang);
+const noResults = translate('common.notFound', lang);
+
+// Fetch search results from MongoDB if query exists
+let searchResults = [];
+if (searchQuery && searchQuery.trim()) {
+  try {
+    // Search articles using MongoDB
+    console.log(`🔎 Searching for: "${searchQuery}"`);
+    const { searchArticlesFromMongo } = await import('../lib/mongo.server');
+    searchResults = await searchArticlesFromMongo(searchQuery.trim(), 50);
+    console.log(`✅ MongoDB search found ${searchResults?.length || 0} results for "${searchQuery}"`);
+  } catch (error) {
+    console.error("❌ MongoDB search error:", error);
+    searchResults = [];
+  }
+} else {
+  console.log(`ℹ️ No search query provided (query="${searchQuery}")`);
+}
+---
+<style is:global>
+  * {
+    box-sizing: border-box;
+  }
+
+  .search-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 60px 20px;
+    min-height: 100vh;
+  }
+
+  h1 {
+    font-size: 3.2rem;
+    color: #1a1a1a;
+    margin: 0 0 15px 0;
+    font-weight: 800;
+    letter-spacing: -1.2px;
+    line-height: 1.1;
+  }
+
+  .search-subtitle {
+    color: #666;
+    font-size: 1.15rem;
+    margin-bottom: 50px;
+    line-height: 1.6;
+    font-weight: 300;
+  }
+
+  .results-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-top: 50px;
+  }
+
+  .result-card {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: white;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .result-card:hover {
+    transform: translateY(-4px);
+    border-color: #8b6914;
+    box-shadow: 0 8px 16px rgba(139, 105, 20, 0.12);
+  }
+
+  .result-image {
+    width: 100%;
+    height: 80px;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.4s ease;
+  }
+
+  .result-card:hover .result-image {
+    transform: scale(1.05);
+  }
+
+  .result-content {
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+  }
+
+  .result-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 2px;
+  }
+
+  .result-tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .result-category {
+    background-color: #f0e6d2;
+    color: #8b6914;
+  }
+
+  .result-keyword {
+    background-color: #d4e6f1;
+    color: #0066cc;
+  }
+
+  .result-title {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin: 0;
+    transition: color 0.2s;
+    line-height: 1.2;
+  }
+
+  .result-card:hover .result-title {
+    color: #8b6914;
+  }
+
+  .result-description {
+    color: #555;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    margin: 0;
+    display: none;
+    flex: 1;
+  }
+
+  #no-results {
+    display: none;
+    text-align: center;
+    padding: 100px 20px;
+    color: #999;
+    font-size: 1.25rem;
+    font-weight: 500;
+  }
+
+  #no-results:not([style*="display: none"]) {
+    display: block;
+  }
+
+  @media (max-width: 768px) {
+    .results-grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 35px;
+    }
+
+    .result-image {
+      height: 70px;
+    }
+
+    .result-content {
+      padding: 8px;
+    }
+
+    .result-title {
+      font-size: 0.85rem;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .search-container {
+      padding: 30px 12px;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+    }
+
+    .search-subtitle {
+      font-size: 0.95rem;
+      margin-bottom: 25px;
+    }
+
+    .results-grid {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .result-image {
+      height: 80px;
+    }
+
+    .result-content {
+      padding: 8px;
+    }
+
+    .result-title {
+      font-size: 0.85rem;
+    }
+  }
+
+  /* Dark mode support */
+  @media (prefers-color-scheme: dark) {
+    h1 {
+      color: #1a1a1a;
+    }
+
+    .search-subtitle {
+      color: #555;
+    }
+
+    .result-card {
+      background: white;
+      border-color: #ddd;
+    }
+
+    .result-card:hover {
+      border-color: #8b6914;
+      box-shadow: 0 12px 28px rgba(139, 105, 20, 0.15);
+    }
+
+    .result-title {
+      color: #1a1a1a;
+    }
+
+    .result-description {
+      color: #555;
+    }
+
+    #no-results {
+      color: #999;
+    }
+  }
+</style>
+
+<BaseLayout title={title} lang={lang}>
+  <div class="search-container">
+    {searchQuery ? (
+      <>
+        <h1>Search Results</h1>
+        <p class="search-subtitle">
+          {searchResults && searchResults.length > 0 ? (
+            <>Found <strong>{searchResults.length}</strong> article{searchResults.length !== 1 ? 's' : ''} for "<strong>{searchQuery}</strong>"</>
+          ) : (
+            <>No results found for "<strong>{searchQuery}</strong>"</>
+          )}
+        </p>
+      </>
+    ) : (
+      <>
+        <h1>Search Articles</h1>
+        <p class="search-subtitle">
+          Use the search bar in the header to find articles
+        </p>
+      </>
+    )}
+
+    <div id="no-results" class="no-results" style={searchResults && searchResults.length > 0 ? "display: none;" : ""}>
+      <p>Try a different search term</p>
+    </div>
+
+    <div class="results-grid" id="results-grid">
+      {searchResults && searchResults.length > 0 ? (
+        searchResults.map((article: any) => {
+          // Get slug properly from MongoDB object
+          const slug = article.slug?.current || '';
+
+          // Handle MongoDB featured image using CDN URL replacer
+          const imageUrl = processArticleImageUrl(article);
+          const imageAlt = article.featured_image?.alt || article.title;
+
+          return (
+            <a href={`/${slug}`} class="result-card">
+              {imageUrl ? (
+                <img src={imageUrl} alt={imageAlt} class="result-image" loading="lazy" />
+              ) : (
+                <div class="result-image" style="background: #f0f0f0;"></div>
+              )}
+              <div class="result-content">
+                <span class="result-title">{article.title}</span>
+                {article.categories && Array.isArray(article.categories) && (
+                  <div class="result-tags">
+                    {article.categories.map((cat: any) => {
+                      const catName = typeof cat === 'object' ? cat?.name || cat?.title || '' : cat;
+                      return catName ? (
+                        <span class="result-tag result-category">{catName}</span>
+                      ) : null;
+                    })}
+                  </div>
+                )}
+                <p class="result-description">{article.excerpt || ''}</p>
+              </div>
+            </a>
+          );
+        })
+      ) : null}
+    </div>
+  </div>
+</BaseLayout>
