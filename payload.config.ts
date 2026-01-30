@@ -38,6 +38,44 @@ export default buildConfig({
     url: mongoUri,
   }),
   secret: process.env.PAYLOAD_SECRET || 'your-secret-key-change-in-production',
+
+  // Webhook configuration for ISR revalidation
+  hooks: {
+    afterChange: [
+      async ({ doc, operation, collection }) => {
+        // Only send webhooks for articles collection
+        if (collection === 'articles' && (operation === 'create' || operation === 'update' || operation === 'delete')) {
+          try {
+            const webhookUrl = process.env.ASTRO_WEBHOOK_URL || 'http://localhost:4321/api/payload-webhook';
+            const webhookSecret = process.env.PAYLOAD_WEBHOOK_SECRET;
+
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(webhookSecret && { 'x-payload-webhook-secret': webhookSecret }),
+              },
+              body: JSON.stringify({
+                type: operation,
+                collection,
+                doc,
+                timestamp: new Date().toISOString(),
+              }),
+            });
+
+            if (response.ok) {
+              console.log(`✅ Webhook sent for ${collection} ${operation}: ${doc.slug || doc.id}`);
+            } else {
+              console.error(`❌ Webhook failed: ${response.status} ${response.statusText}`);
+            }
+          } catch (error) {
+            console.error('❌ Webhook error:', error);
+          }
+        }
+      },
+    ],
+  },
+
   typescript: {
     outputFile: path.resolve(__dirname, 'payload-types.ts'),
   },

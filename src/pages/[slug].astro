@@ -5,6 +5,7 @@ import RecipeInstructions from '../components/RecipeInstructions.astro';
 import RecipeNutrition from '../components/RecipeNutrition.astro';
 import CommentForm from '../components/CommentForm.astro';
 import CommentList from '../components/CommentList.astro';
+import SaaSComments from '../components/SaaSComments.astro';
 import GlobalSidebar from '../components/GlobalSidebar.astro';
 import GlobalAbout from '../components/GlobalAbout.astro';
 import GlobalFooter from '../components/GlobalFooter.astro';
@@ -13,52 +14,60 @@ import { getAllArticlesFromMongo, getArticleBySlugFromMongo, getCommentsByArticl
 import { decodeHtmlEntities as decodeEntities } from '../utils/decodeHtmlEntities';
 import { buildArticleJsonLd, buildBreadcrumbJsonLd } from '../utils/buildArticleJsonLd';
 import { processArticleImageUrl } from '../utils/cdnUrlReplacer';
-// Disable prerender in dev mode - use SSR only
-export const prerender = false;
+
+// Enable SSG - pre-generate all article pages at build time
+export const prerender = true;
 
 export async function getStaticPaths() {
-  return [];
+  // Generate static paths for all articles at build time
+  let articles = await getAllArticlesFromMongo();
+
+  // Fallback to Payload if MongoDB fails
+  if (!articles || articles.length === 0) {
+    articles = await payloadFetch({
+      collection: 'articles',
+      query: { depth: 2 }
+    });
+  }
+
+  if (!articles || !Array.isArray(articles)) {
+    return [];
+  }
+
+  return articles.map((article: any) => ({
+    params: { slug: article.slug },
+    props: { article }
+  }));
 }
 
 interface Props {
   article: any;
 }
 
-const { article: articleParam } = Astro.props;
-const { slug } = Astro.params;
+const { article } = Astro.props;
 
-// Fetch article from MongoDB by slug (for SSR mode with prerender=false)
-let articleData = articleParam || null;
-if (!articleData && slug) {
-  articleData = await getArticleBySlugFromMongo(slug);
-}
+const article = article;
 
-// Fallback to Payload if MongoDB didn't return anything
-if (!articleData && slug) {
-  const allArticles = (await payloadFetch({
-    collection: 'articles',
-  })) || [];
-  articleData = allArticles.find((a: any) => a.slug === slug) || null;
-}
+// For SSG, we can't fetch comments at build time as they change frequently
+// Comments will be loaded client-side using SaaS solution (Giscus/Disqus)
+// TODO: Replace Payload comments with client-side SaaS comments
+const comments = [];
 
-const article = articleData;
-
-// Fetch comments from MongoDB for this article
-const articleId = article?._id?.toString() || article?._id || '';
-const comments = articleId ? await getCommentsByArticleIdFromMongo(articleId) : [];
-
-// Fetch related articles based on category
+// Fetch related articles at build time (static data)
 let relatedArticles: any[] = [];
 if (article && article.categories && article.categories.length > 0) {
   try {
-    const { getRelatedArticlesFromMongo } = await import('../lib/mongo.server');
-
-    // Fetch related articles directly from MongoDB using category IDs
-    relatedArticles = await getRelatedArticlesFromMongo(
-      article.categories,
-      articleId,
-      3
-    );
+    // Pre-fetch related articles at build time
+    const allArticles = await getAllArticlesFromMongo();
+    relatedArticles = allArticles
+      .filter((a: any) =>
+        a.categories?.some((cat: any) =>
+          article.categories.some((artCat: any) =>
+            (cat._id || cat) === (artCat._id || artCat)
+          )
+        ) && a._id !== article._id
+      )
+      .slice(0, 3);
   } catch (error) {
     console.error('Error fetching related articles:', error);
     relatedArticles = [];
@@ -288,12 +297,8 @@ const author = article.author?.name || 'La Cuisine De Bernard';
           </div>
         </article>
 
-        <!-- Comments Section -->
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-8">
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">Comments</h2> 
-          <CommentForm slug={article.slug} />
-          <CommentList comments={comments} />
-        </div>
+        <!-- Comments Section - Now using SaaS solution -->
+        <SaaSComments />
 
         <!-- You Might Like Section -->
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">

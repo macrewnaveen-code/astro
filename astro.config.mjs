@@ -10,8 +10,8 @@ const siteUrl = isDev
 export default defineConfig({
   site: siteUrl,
 
-  // REQUIRED for Vercel
-  output: 'server',
+  // Change from 'server' to 'static' for 100% SSG/ISR
+  output: 'static',
 
   adapter: vercel(),
 
