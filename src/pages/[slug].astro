@@ -46,8 +46,6 @@ interface Props {
 
 const { article } = Astro.props;
 
-const article = article;
-
 // For SSG, we can't fetch comments at build time as they change frequently
 // Comments will be loaded client-side using SaaS solution (Giscus/Disqus)
 // TODO: Replace Payload comments with client-side SaaS comments
