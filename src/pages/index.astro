@@ -10,7 +10,7 @@ import GlobalAbout from "../components/GlobalAbout.astro";
 import GlobalFooter from "../components/GlobalFooter.astro";
 import { getArticlesPage as getArticlesPagePayload, getArticlesCount } from "../lib/payload.client";
 import { getArticlesFromMongo, getArticlesCountFromMongo } from "../lib/mongo.server";
-import { SpeedInsights } from "@vercel/speed-insights/next"
+
 // Enable SSG with ISR for homepage
 export const prerender = true;
 
