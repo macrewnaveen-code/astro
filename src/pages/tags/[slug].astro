@@ -3,21 +3,22 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import { payloadFetch } from '../../lib/payload.client';
 import { processArticleImageUrl } from '../../utils/cdnUrlReplacer';
 
-export const prerender = true;
+// This page fetches data at runtime for dynamic tag pages
+// export const prerender = true;
 
-export async function getStaticPaths() {
-  // Fetch all tags from Payload
-  const result = await payloadFetch({
-    endpoint: '/collections/tags?limit=1000',
-    method: 'GET'
-  });
+// export async function getStaticPaths() {
+//   // Fetch all tags from Payload
+//   const result = await payloadFetch({
+//     endpoint: '/collections/tags?limit=1000',
+//     method: 'GET'
+//   });
   
-  const tags = result?.docs || [];
+//   const tags = result?.docs || [];
 
-  return tags.map((tag: any) => ({
-    params: { slug: tag.slug },
-  }));
-}
+//   return tags.map((tag: any) => ({
+//     params: { slug: tag.slug },
+//   }));
+// }
 
 const { slug } = Astro.params;
 
@@ -117,7 +118,7 @@ const currentPage = 1;
 const totalPages = Math.ceil(articlesData.length / articlesPerPage);
 const startIdx = (currentPage - 1) * articlesPerPage;
 const endIdx = startIdx + articlesPerPage;
-const articles = articlesData.slice(startIdx, endIdx);
+const paginatedArticles = articlesData.slice(startIdx, endIdx);
 ---
 
 <BaseLayout title={`#${tag.title}`} description={`Articles tagged with ${tag.title}`}>
@@ -165,7 +166,7 @@ const articles = articlesData.slice(startIdx, endIdx);
 
           {/* Articles Grid */}
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
-            {articles.map((article: any) => (
+            {paginatedArticles.map((article: any) => (
               <a href={`/${article.slug.current}`} class="group h-full">
                 <div class="bg-gradient-to-b from-gray-800 to-gray-900 rounded-2xl shadow-xl overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-3 h-full flex flex-col border border-gray-700 hover:border-gray-600">
                   {/* Image Container */}

@@ -1,19 +1,26 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import { payloadFetch } from "../../lib/payload.client";
+import { getArticlesFromMongo } from "../../lib/mongo.server";
 
 const lang = 'en';
 const currentPage = 1;
 const articlesPerPage = 12;
 
-// Fetch all articles from Payload
-const allArticles = await payloadFetch({
-  endpoint: '/collections/articles?depth=2&limit=1000',
-  method: 'GET'
-});
+// Fetch all articles from MongoDB (primary) or Payload (fallback)
+let allArticles = await getArticlesFromMongo(1, 1000); // Get all articles for filtering
+
+// Fallback to Payload if MongoDB fails
+if (!allArticles || allArticles.length === 0) {
+  const result = await payloadFetch({
+    endpoint: '/collections/articles?depth=2&limit=1000',
+    method: 'GET'
+  });
+  allArticles = result?.docs || [];
+}
 
 // Filter articles
-const articles = (Array.isArray(allArticles?.docs) ? allArticles.docs : []).filter((a: any) => a && a.title);
+const articles = (Array.isArray(allArticles) ? allArticles : []).filter((a: any) => a && a.title);
 
 console.log('🔍 Payload Articles Fetched:', allArticles);
 console.log('✅ Filtered articles:', articles.length);

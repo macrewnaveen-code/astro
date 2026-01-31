@@ -161,19 +161,29 @@ export interface Article {
   lang?: string | null;
   title: string;
   slug: string;
-  excerpt?:
-    | {
+  excerpt?: {
+    root: {
+      type: string;
+      children: {
+        type: any;
+        version: number;
         [k: string]: unknown;
-      }[]
-    | null;
-  content: {
+      }[];
+      direction: ('ltr' | 'rtl') | null;
+      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+      indent: number;
+      version: number;
+    };
     [k: string]: unknown;
-  }[];
+  } | null;
+  content: string;
   date: string;
   modified?: string | null;
   link?: string | null;
   author?: (string | null) | Author;
   featured_image?: (string | null) | Media;
+  featured_img_url?: string | null;
+  featureImage?: string | null;
   inline_images?:
     | {
         image?: (string | null) | Media;
@@ -188,11 +198,21 @@ export interface Article {
         author?: string | null;
         email?: string | null;
         date?: string | null;
-        content?:
-          | {
+        content?: {
+          root: {
+            type: string;
+            children: {
+              type: any;
+              version: number;
               [k: string]: unknown;
-            }[]
-          | null;
+            }[];
+            direction: ('ltr' | 'rtl') | null;
+            format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+            indent: number;
+            version: number;
+          };
+          [k: string]: unknown;
+        } | null;
         id?: string | null;
       }[]
     | null;
@@ -257,6 +277,10 @@ export interface Category {
   name: string;
   slug: string;
   description?: string | null;
+  /**
+   * Number of articles assigned to this category (populated by migration script).
+   */
+  articleCount?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -284,8 +308,20 @@ export interface Comment {
   email?: string | null;
   date: string;
   content: {
+    root: {
+      type: string;
+      children: {
+        type: any;
+        version: number;
+        [k: string]: unknown;
+      }[];
+      direction: ('ltr' | 'rtl') | null;
+      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+      indent: number;
+      version: number;
+    };
     [k: string]: unknown;
-  }[];
+  };
   rating?: number | null;
   updatedAt: string;
   createdAt: string;
@@ -423,6 +459,8 @@ export interface ArticlesSelect<T extends boolean = true> {
   link?: T;
   author?: T;
   featured_image?: T;
+  featured_img_url?: T;
+  featureImage?: T;
   inline_images?:
     | T
     | {
@@ -489,6 +527,7 @@ export interface CategoriesSelect<T extends boolean = true> {
   name?: T;
   slug?: T;
   description?: T;
+  articleCount?: T;
   updatedAt?: T;
   createdAt?: T;
 }

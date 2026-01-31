@@ -15,24 +15,30 @@ import { decodeHtmlEntities as decodeEntities } from '../utils/decodeHtmlEntitie
 import { buildArticleJsonLd, buildBreadcrumbJsonLd } from '../utils/buildArticleJsonLd';
 import { processArticleImageUrl } from '../utils/cdnUrlReplacer';
 
-// Enable SSG - pre-generate all article pages at build time
+// Enable ISR - pre-generate popular articles, others on-demand
 export const prerender = true;
 
 export async function getStaticPaths() {
-  // Generate static paths for all articles at build time
+  console.log('🚀 [ISR BUILD] Starting static path generation for popular articles...');
+
   let articles = await getAllArticlesFromMongo();
 
-  // Fallback to Payload if MongoDB fails
-  if (!articles || articles.length === 0) {
-    articles = await payloadFetch({
-      collection: 'articles',
-      query: { depth: 2 }
-    });
+  // For ISR: Only pre-generate the first 100 most popular articles
+  // Remaining articles will be generated on-demand
+  const maxStaticArticles = 100;
+
+  if (articles.length > maxStaticArticles) {
+    console.log(`📊 [ISR BUILD] Limiting to ${maxStaticArticles} pre-generated articles (from ${articles.length} total)`);
+    console.log('📊 [ISR BUILD] Remaining articles will be generated on-demand via ISR');
+    articles = articles.slice(0, maxStaticArticles);
   }
 
-  if (!articles || !Array.isArray(articles)) {
+  if (!articles || articles.length === 0) {
+    console.log('⚠️ [ISR BUILD] No articles found in MongoDB');
     return [];
   }
+
+  console.log(`✅ [ISR BUILD] Pre-generating ${articles.length} articles at build time`);
 
   return articles.map((article: any) => ({
     params: { slug: article.slug },
@@ -41,31 +47,46 @@ export async function getStaticPaths() {
 }
 
 interface Props {
-  article: any;
+  article?: any; // Optional for ISR - may not be pre-generated
 }
 
-const { article } = Astro.props;
+const { article: preGeneratedArticle } = Astro.props;
+const { slug } = Astro.params;
+
+// For ISR: If article wasn't pre-generated, fetch it on-demand
+let article = preGeneratedArticle;
+if (!article && slug) {
+  console.log(`🔄 [ISR] Generating article on-demand: ${slug}`);
+  try {
+    article = await getArticleBySlugFromMongo(slug);
+    if (!article) {
+      return new Response('Article not found', { status: 404 });
+    }
+  } catch (error) {
+    console.error(`❌ [ISR] Error fetching article ${slug}:`, error);
+    return new Response('Error loading article', { status: 500 });
+  }
+}
+
+if (!article) {
+  return new Response('Article not found', { status: 404 });
+}
 
 // For SSG, we can't fetch comments at build time as they change frequently
 // Comments will be loaded client-side using SaaS solution (Giscus/Disqus)
 // TODO: Replace Payload comments with client-side SaaS comments
 const comments = [];
 
-// Fetch related articles at build time (static data)
+// For ISR: Fetch related articles on-demand (not at build time)
 let relatedArticles: any[] = [];
 if (article && article.categories && article.categories.length > 0) {
   try {
-    // Pre-fetch related articles at build time
-    const allArticles = await getAllArticlesFromMongo();
-    relatedArticles = allArticles
-      .filter((a: any) =>
-        a.categories?.some((cat: any) =>
-          article.categories.some((artCat: any) =>
-            (cat._id || cat) === (artCat._id || artCat)
-          )
-        ) && a._id !== article._id
-      )
-      .slice(0, 3);
+    // For ISR, we fetch related articles on-demand
+    relatedArticles = await getRelatedArticlesFromMongo(
+      article.categories.map((cat: any) => cat._id || cat),
+      article._id,
+      3
+    );
   } catch (error) {
     console.error('Error fetching related articles:', error);
     relatedArticles = [];

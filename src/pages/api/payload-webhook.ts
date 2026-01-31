@@ -1,6 +1,9 @@
 // Webhook endpoint for Payload CMS content revalidation
 // This enables ISR (Incremental Static Regeneration)
 
+// Mark as server-rendered for API functionality
+export const prerender = false;
+
 export async function POST({ request }: { request: Request }) {
   try {
     const body = await request.json();

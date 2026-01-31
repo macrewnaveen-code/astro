@@ -1,16 +1,23 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { payloadFetch } from '../../lib/payload.client';
+import { getAllArticlesFromMongo } from '../../lib/mongo.server';
 
 export const prerender = true;
 
 export async function getStaticPaths() {
-  const result = await payloadFetch({
-    endpoint: '/collections/articles?limit=1000',
-    method: 'GET'
-  });
+  // Use MongoDB as primary data source during build time
+  let allArticles = await getAllArticlesFromMongo();
   
-  const allArticles = result?.docs || [];
+  // Fallback to Payload if MongoDB fails
+  if (!allArticles || allArticles.length === 0) {
+    const result = await payloadFetch({
+      endpoint: '/collections/articles?limit=1000',
+      method: 'GET'
+    });
+    allArticles = result?.docs || [];
+  }
+  
   const articlesPerPage = 12;
   const totalPages = Math.ceil(allArticles.length / articlesPerPage);
 
