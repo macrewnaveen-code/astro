@@ -1,6 +1,7 @@
 ---
 import SEO from "../components/SEO.astro";
 import Header from "../components/Header.astro";
+import SpeedInsights from '@vercel/speed-insights/astro';
 import '../styles/global.css';
 import '@fortawesome/fontawesome-free/css/all.css';
 
@@ -35,6 +36,7 @@ const { title, description, canonical, slug, lang = 'en', image, jsonLd = [] } =
   <body>
     <Header lang={lang} />
     <slot />
+    <SpeedInsights />
   </body>
 </html>
 
