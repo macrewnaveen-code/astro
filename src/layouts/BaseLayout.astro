@@ -1,4 +1,5 @@
 ---
+import Analytics from '@vercel/analytics/astro';
 import SEO from "../components/SEO.astro";
 import Header from "../components/Header.astro";
 import '../styles/global.css';
@@ -27,6 +28,7 @@ const { title, description, canonical, slug, lang = 'en', image, jsonLd = [] } =
       slug={slug}
       image={image}
     />
+    <Analytics />
     
     {jsonLd && jsonLd.length > 0 && jsonLd.map(schema => (
       <script type="application/ld+json" set:html={JSON.stringify(schema)} />
