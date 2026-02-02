@@ -59,7 +59,6 @@ missing_articles.txt
 # jetbrains setting folder
 .idea/
 
-.vercel
 .env*.local
 
 .vercel

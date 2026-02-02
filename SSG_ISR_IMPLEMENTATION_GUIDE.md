@@ -1,7 +1,7 @@
 # 🚀 Complete SSG/ISR Implementation Guide for Astro + Payload CMS
 
 ## 📋 Project Overview
-**Current Setup**: Astro frontend + Payload CMS + MongoDB + Vercel hosting
+**Current Setup**: Astro frontend + Payload CMS + MongoDB + Scaleway static hosting
 **Goal**: Implement 100% SSG/ISR architecture to meet client requirements
 
 ---
@@ -53,12 +53,12 @@ output: 'static'
 - ✅ No backend dependency
 - ✅ GDPR-ready
 
-### 6. Vercel Configuration
-**File**: `vercel.json`
+
+### 6. Scaleway Static Hosting Configuration
 **Status**: ✅ COMPLETED
 **Setup**:
-- ✅ Redirects for admin panel
-- ✅ API proxy configuration
+- ✅ Astro outputs static files to `/dist`
+- ✅ Upload `/dist` to Scaleway Object Storage or static web server
 
 ---
 
@@ -94,13 +94,13 @@ Secret: your-secure-webhook-secret-here
 
 ### **CRITICAL: Environment Variables**
 
-#### Step 1: Vercel Environment Variables
-Go to Vercel Dashboard → Your Project → Settings → Environment Variables
 
-Add these variables:
+#### Step 1: Scaleway Environment Variables
+Set these variables in your build environment or as secrets in your CI/CD:
 ```
-ASTRO_WEBHOOK_URL=https://your-domain.vercel.app/api/payload-webhook
 PAYLOAD_WEBHOOK_SECRET=your-secure-webhook-secret-here
+ASTRO_WEBHOOK_URL=https://your-domain.com/api/payload-webhook
+MONGODB_URI=your-mongodb-connection-string
 ```
 
 #### Step 2: Payload Environment Variables
@@ -171,24 +171,28 @@ NEXT_PUBLIC_PAYLOAD_URL=https://payloadcms-pi.vercel.app
 
 ---
 
-### **🚀 Production Deployment**
-**Status: ❌ NOT DONE**  
+
+### **🚀 Production Deployment (Scaleway)**
+**Status: 🚦 READY**  
 **Time Required:** 30 minutes
 
-#### **Deploy Commands:**
+#### **Deploy Steps:**
 ```bash
-# Astro Frontend Deploy
+# 1. Build Astro static site
 npm run build
-vercel --prod
 
-# Payload CMS Deploy (if separate)
-cd payload-admin
-npm run build
-vercel --prod
+# 2. Upload /dist/ folder to Scaleway Object Storage or your static web server
+#    (You can use Scaleway Console or CLI to upload)
+
+# 3. Configure your Scaleway bucket for static website hosting
+#    - Set index.html as the default document
+#    - Set error.html if needed
+
+# 4. Point your domain to Scaleway bucket endpoint (update DNS)
 ```
 
 #### **Post-Deploy Verification:**
-- ✅ Astro site accessible on Vercel
+- ✅ Astro site accessible on Scaleway
 - ✅ Payload admin accessible
 - ✅ Environment variables loaded
 - ✅ Webhooks configured in Payload admin
@@ -363,13 +367,16 @@ User Request → CDN → Pre-generated HTML → Instant Response
 - [ ] Build passes locally (`npm run build`)
 - [ ] All tests pass
 
+
 ### **Deployment:**
 ```bash
 # Deploy Astro frontend
-vercel --prod
+npm run build
+# Upload /dist/ to Scaleway static hosting
 
 # Deploy Payload admin (if needed)
-cd payload-admin && vercel --prod
+cd payload-admin && npm run build
+# Deploy as per your backend hosting (not affected by frontend change)
 ```
 
 ### **Post-Deployment:**
@@ -452,9 +459,10 @@ ASTRO_WEBHOOK_URL=https://your-domain.com/api/payload-webhook
 MONGODB_URI=your-mongodb-connection-string
 ```
 
+
 ### **2. Deploy to Production**
-- Deploy Astro site to Vercel/Netlify
-- Deploy Payload CMS to Vercel/Netlify
+- Deploy Astro site to Scaleway static hosting
+- Deploy Payload CMS to your backend host (unchanged)
 - Ensure both services are accessible
 
 ### **3. Test Production Webhooks**
@@ -540,7 +548,7 @@ This implementation meets all the client's strict requirements for performance, 
 
 If you encounter any issues:
 1. Check the troubleshooting section above
-2. Review Vercel deployment logs
+2. Review Scaleway hosting logs
 3. Check Payload webhook logs
 4. Test webhook endpoint manually
 
