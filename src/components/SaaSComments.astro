@@ -1,30 +1,41 @@
 ---
-// Giscus Comments Component - Client-side SaaS comments
-// Replaces Payload comments to meet client requirements
+const {
+  PUBLIC_GISCUS_REPO,
+  PUBLIC_GISCUS_REPO_ID,
+  PUBLIC_GISCUS_CATEGORY,
+  PUBLIC_GISCUS_CATEGORY_ID,
+  PUBLIC_GISCUS_MAPPING = 'pathname',
+  PUBLIC_GISCUS_THEME = 'light'
+} = import.meta.env;
+const enabled = Boolean(PUBLIC_GISCUS_REPO && PUBLIC_GISCUS_REPO_ID && PUBLIC_GISCUS_CATEGORY && PUBLIC_GISCUS_CATEGORY_ID);
 ---
 
 <div id="comments-section" class="mt-8">
   <h3 class="text-2xl font-bold mb-4">Comments</h3>
 
   <!-- Giscus Comments Widget -->
-  <div class="giscus-comments">
-    <script
-      src="https://giscus.app/client.js"
-      data-repo="your-username/your-repo"
-      data-repo-id="your-repo-id"
-      data-category="Comments"
-      data-category-id="your-category-id"
-      data-mapping="pathname"
-      data-strict="0"
-      data-reactions-enabled="1"
-      data-emit-metadata="0"
-      data-input-position="bottom"
-      data-theme="light"
-      data-lang="en"
-      crossorigin="anonymous"
-      async>
-    </script>
-  </div>
+  {enabled ? (
+    <div class="giscus-comments">
+      <script
+        src="https://giscus.app/client.js"
+        data-repo={PUBLIC_GISCUS_REPO}
+        data-repo-id={PUBLIC_GISCUS_REPO_ID}
+        data-category={PUBLIC_GISCUS_CATEGORY}
+        data-category-id={PUBLIC_GISCUS_CATEGORY_ID}
+        data-mapping={PUBLIC_GISCUS_MAPPING}
+        data-strict="0"
+        data-reactions-enabled="1"
+        data-emit-metadata="0"
+        data-input-position="bottom"
+        data-theme={PUBLIC_GISCUS_THEME}
+        data-lang="en"
+        crossorigin="anonymous"
+        async>
+      </script>
+    </div>
+  ) : (
+    <div class="text-sm text-gray-500 italic">Comments are disabled; configure Giscus in your environment variables.</div>
+  )}
 
   <!-- Fallback message while loading -->
   <div id="comments-loading" class="text-gray-500 italic">
