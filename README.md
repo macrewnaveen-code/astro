@@ -398,6 +398,21 @@ The build process:
 - **Sitemap generation:** All URLs included automatically
 - **Meta tags:** Title, description, OG tags per page
 
+---
+
+### Comments (Giscus)
+This project uses **Giscus** (GitHub Discussions) for article comments via the `SaaSComments` component (`src/components/SaaSComments.astro`). To enable comments in development or production, configure the following environment variables either in your deployment settings or locally by copying `.env.example` → `.env.local` and filling the values (do NOT commit `.env.local`):
+
+- `PUBLIC_GISCUS_REPO` — e.g., `owner/repo` (your GitHub repository)
+- `PUBLIC_GISCUS_REPO_ID` — repository node ID (available via `giscus.app` or GitHub API)
+- `PUBLIC_GISCUS_CATEGORY` — discussion category name (e.g., `Comments`)
+- `PUBLIC_GISCUS_CATEGORY_ID` — category node ID (available via `giscus.app`)
+- Optional: `PUBLIC_GISCUS_MAPPING` (default: `pathname`) and `PUBLIC_GISCUS_THEME` (default: `light`)
+
+For more information and setup instructions, see https://giscus.app
+
+---
+
 #### 4. Search (Algolia)
 ```bash
 npm run index:algolia  # Index recipes to Algolia
