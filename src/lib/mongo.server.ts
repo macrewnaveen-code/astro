@@ -177,7 +177,7 @@ export async function getRelatedArticlesFromMongo(categoryIds: any[], excludeArt
   } catch (error) {
     console.error('❌ Error fetching related articles from MongoDB:', error);
     return [];
-  }
+    }
 }
 
 export async function getAllArticlesFromMongo() {
@@ -188,29 +188,94 @@ export async function getAllArticlesFromMongo() {
     const db = await getMongoConnection();
     const articlesCollection = db.collection('articles');
 
+    const envMax = Number(process.env.MAX_SSG_ARTICLES);
+    const limit = Number.isFinite(envMax) && envMax > 0 ? envMax : 50; // default cap 50 unless overridden
+
+    const prioritySlugsRaw = (process.env.INCLUDE_SLUGS || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
     // Get total count first for progress tracking
     const totalCount = await articlesCollection.countDocuments();
     console.log(`📊 [BUILD] Found ${totalCount} articles in database`);
 
-    // Fetch only essential fields for static path generation
-    console.log('📊 [BUILD] Fetching articles from MongoDB (essential fields only)...');
-    const articles = await articlesCollection.find(
+    if (totalCount > limit) {
+      console.warn(`⚠️ [BUILD] Will fetch ${limit} base articles (set MAX_SSG_ARTICLES to raise). Priority slugs will still be added.`);
+    }
+
+    // Fetch only fields needed to render article pages statically
+    console.log(`📊 [BUILD] Fetching up to ${limit} base articles from MongoDB (fields needed for SSG)...`);
+    const baseArticles = await articlesCollection.find(
       {},
       {
         projection: {
           _id: 1,
           slug: 1,
           title: 1,
-          // Add other essential fields as needed
+          content: 1,
+          excerpt: 1,
+          date: 1,
+          updated: 1,
+          author: 1,
+          categories: 1,
+          tags: 1,
+          featured_img_url: 1,
+          featured_image: 1,
+          featuredImageUrl: 1,
         }
       }
-    ).toArray();
+    )
+      .limit(limit)
+      .toArray();
+
+    let articles = baseArticles;
+
+    // Force-include priority slugs (e.g., Arabic) even if outside the base limit
+    if (prioritySlugsRaw.length) {
+      const decodeSafe = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
+      const prioritySlugs = Array.from(new Set(prioritySlugsRaw.flatMap(s => [s, decodeSafe(s)])));
+
+      const extraArticles = await articlesCollection.find(
+        {
+          $or: [
+            { slug: { $in: prioritySlugs } },
+            { 'slug.current': { $in: prioritySlugs } }
+          ]
+        },
+        {
+          projection: {
+            _id: 1,
+            slug: 1,
+            title: 1,
+            content: 1,
+            excerpt: 1,
+            date: 1,
+            updated: 1,
+            author: 1,
+            categories: 1,
+            tags: 1,
+            featured_img_url: 1,
+            featured_image: 1,
+            featuredImageUrl: 1,
+          }
+        }
+      ).toArray();
+
+      const seen = new Set(articles.map(a => a._id?.toString() || (typeof a.slug === 'object' ? a.slug?.current : a.slug)));
+      for (const doc of extraArticles) {
+        const key = doc._id?.toString() || (typeof doc.slug === 'object' ? doc.slug?.current : doc.slug);
+        if (!seen.has(key)) {
+          articles.push(doc);
+          seen.add(key);
+        }
+      }
+      console.log(`📌 [BUILD] Added ${articles.length - baseArticles.length} priority slug articles (INCLUDE_SLUGS).`);
+    }
 
     const processedArticles = articles.map(doc => ({
       _id: doc._id?.toString(),
-      slug: doc.slug,
-      title: doc.title,
-      // Add other essential fields
+      ...doc,
     }));
 
     const endTime = Date.now();

@@ -1,45 +1,81 @@
 import type { APIRoute } from 'astro';
 
-export const POST: APIRoute = async ({ request }) => {
+export const GET: APIRoute = async ({ request, url }) => {
+  console.log('🔄 [WEBHOOK] GET request received');
+  console.log('🔄 [WEBHOOK] Full URL:', url.toString());
+  console.log('🔄 [WEBHOOK] Search params string:', url.searchParams.toString());
+
   try {
-    const body = await request.json();
-    console.log('Webhook received:', body);
+    const params = url.searchParams;
+    console.log('🔄 [WEBHOOK] Params entries:', Array.from(params.entries()));
 
-    // Verify webhook secret if needed
-    const signature = request.headers.get('x-payload-signature');
-    // Add signature verification logic here if needed
+    const data = {
+      collection: params.get('collection'),
+      operation: params.get('operation'),
+      id: params.get('id'),
+      slug: params.get('slug'),
+    };
 
-    // Trigger rebuild (you can integrate with GitHub Actions, Vercel, etc.)
-    // For now, just log the webhook
-    console.log('Payload webhook triggered for:', {
-      type: body.type,
-      operation: body.operation,
-      id: body.id
-    });
-
-    // Here you could:
-    // 1. Trigger GitHub Actions rebuild
-    // 2. Clear cache
-    // 3. Send notification
-    // 4. Update search index
+    console.log('🔄 [WEBHOOK] Extracted data:', data);
 
     return new Response(JSON.stringify({
       success: true,
-      message: 'Webhook processed successfully'
+      message: 'Webhook received',
+      data,
+      timestamp: new Date().toISOString()
     }), {
       status: 200,
-      headers: { 'Content-Type': 'application/json' }
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      }
     });
-
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error('❌ [WEBHOOK] GET Error:', error);
     return new Response(JSON.stringify({
       success: false,
-      message: 'Webhook processing failed',
+      message: 'Error processing GET request',
       error: error.message
     }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      }
+    });
+  }
+};
+
+export const POST: APIRoute = async ({ request }) => {
+  console.log('🔄 [WEBHOOK] POST request received');
+
+  try {
+    const body = await request.text();
+    console.log('🔄 [WEBHOOK] Body:', body);
+
+    return new Response(JSON.stringify({
+      success: true,
+      message: 'Webhook received',
+      body,
+      timestamp: new Date().toISOString()
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      }
+    });
+  } catch (error) {
+    console.error('❌ [WEBHOOK] POST Error:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      message: 'Error processing POST request'
+    }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      }
     });
   }
 };

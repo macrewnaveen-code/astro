@@ -1,40 +1,86 @@
 ---
-import BaseLayout from '../layouts/BaseLayout.astro';
-import RecipeIngredients from '../components/RecipeIngredients.astro';
-import RecipeInstructions from '../components/RecipeInstructions.astro';
-import RecipeNutrition from '../components/RecipeNutrition.astro';
-import GlobalSidebar from '../components/GlobalSidebar.astro';
-import GlobalAbout from '../components/GlobalAbout.astro';
-import GlobalFooter from '../components/GlobalFooter.astro';
+import BaseLayout from "../layouts/BaseLayout.astro";
+import RecipeIngredients from "../components/RecipeIngredients.astro";
+import RecipeInstructions from "../components/RecipeInstructions.astro";
+import RecipeNutrition from "../components/RecipeNutrition.astro";
+import GlobalSidebar from "../components/GlobalSidebar.astro";
+import GlobalAbout from "../components/GlobalAbout.astro";
+import GlobalFooter from "../components/GlobalFooter.astro";
 
-// Server-side rendering for dynamic content and real-time data
-export const prerender = false;
-import { payloadFetch } from '../lib/payload.client';
-import { getAllArticlesFromMongo, getArticleBySlugFromMongo, getCommentsByArticleIdFromMongo, getRelatedArticlesFromMongo } from '../lib/mongo.server';
-import { getMongoConnection } from '../lib/mongo.server';
-import { decodeHtmlEntities as decodeEntities } from '../utils/decodeHtmlEntities';
-import { buildArticleJsonLd, buildBreadcrumbJsonLd } from '../utils/buildArticleJsonLd';
-import { processArticleImageUrl } from '../utils/cdnUrlReplacer';
+import { payloadFetch } from "../lib/payload.client";
+import {
+  getAllArticlesFromMongo,
+  getRelatedArticlesFromMongo,
+  getMongoConnection,
+} from "../lib/mongo.server";
+import { decodeHtmlEntities as decodeEntities } from "../utils/decodeHtmlEntities";
+import {
+  buildArticleJsonLd,
+  buildBreadcrumbJsonLd,
+} from "../utils/buildArticleJsonLd";
+import { processArticleImageUrl } from "../utils/cdnUrlReplacer";
 
-// Dynamic article rendering - fetch from MongoDB on each request
+export const prerender = true;
+
+export async function getStaticPaths() {
+  let articles: any[] = [];
+
+  const decodeSafe = (value: string) => {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  };
+
+  try {
+    articles = await getAllArticlesFromMongo();
+  } catch (error) {
+    console.error(
+      "⚠️ getAllArticlesFromMongo failed, falling back to Payload:",
+      error,
+    );
+  }
+
+  if (!articles || articles.length === 0) {
+    try {
+      const payloadResponse: any = await payloadFetch({
+        collection: "articles",
+        query: { depth: 2, limit: 5000 },
+      });
+      articles = payloadResponse?.docs || payloadResponse || [];
+    } catch (error) {
+      console.error("⚠️ payloadFetch fallback failed:", error);
+    }
+  }
+
+  if (!Array.isArray(articles)) return [];
+
+  return articles
+    .filter((article: any) => article?.slug)
+    .map((article: any) => {
+      const rawSlug =
+        typeof article.slug === "string"
+          ? article.slug
+          : article.slug?.current || "";
+      const slugValue = decodeSafe(rawSlug);
+      return {
+        params: { slug: slugValue },
+        props: { article: { ...article, slug: slugValue } },
+      };
+    });
+}
 
 interface Props {
-  article?: any; // Optional for serverless - fetched dynamically
+  article: any;
 }
 
-const { slug } = Astro.params;
-
-// Fetch article dynamically for serverless rendering
-let article = null;
-try {
-  article = await getArticleBySlugFromMongo(slug);
-} catch (error) {
-  console.error('Error fetching article:', error);
-}
-
+const { article } = Astro.props;
 if (!article) {
-  return new Response('Article not found', { status: 404 });
+  throw new Error("Article data missing at build time");
 }
+const slug =
+  typeof article.slug === "string" ? article.slug : article.slug?.current || "";
 
 // For SSG, we can't fetch comments at build time as they change frequently
 // Comments will be loaded client-side using SaaS solution (Giscus/Disqus)
@@ -45,150 +91,186 @@ const comments = [];
 let relatedArticles: any[] = [];
 if (article) {
   try {
-    console.log('🔍 [RELATED] Fetching related articles for article:', article.title);
+    console.log(
+      "🔍 [RELATED] Fetching related articles for article:",
+      article.title,
+    );
 
     // First try to get articles by category
     if (article.categories && article.categories.length > 0) {
-      const categoryIds = article.categories.map((cat: any) => {
-        if (typeof cat === 'string') return cat;
-        if (cat && cat._id) return cat._id;
-        if (cat && cat.id) return cat.id;
-        return cat;
-      }).filter(id => id);
+      const categoryIds = article.categories
+        .map((cat: any) => {
+          if (typeof cat === "string") return cat;
+          if (cat && cat._id) return cat._id;
+          if (cat && cat.id) return cat.id;
+          return cat;
+        })
+        .filter((id) => id);
 
-      console.log('🔍 [RELATED] Trying category-based search with IDs:', categoryIds);
+      console.log(
+        "🔍 [RELATED] Trying category-based search with IDs:",
+        categoryIds,
+      );
 
-      relatedArticles = await getRelatedArticlesFromMongo(categoryIds, article._id, 3);
+      relatedArticles = await getRelatedArticlesFromMongo(
+        categoryIds,
+        article._id,
+        3,
+      );
     }
 
     // If no category-based results, get random articles
     if (!relatedArticles || relatedArticles.length === 0) {
-      console.log('🔍 [RELATED] No category matches, trying random articles');
+      console.log("🔍 [RELATED] No category matches, trying random articles");
 
       const db = await getMongoConnection();
-      const articlesCollection = db.collection('articles');
+      const articlesCollection = db.collection("articles");
 
       // Get 3 random articles excluding current one
       const randomArticles = await articlesCollection
         .aggregate([
           { $match: { _id: { $ne: article._id } } },
-          { $sample: { size: 3 } }
+          { $sample: { size: 3 } },
         ])
         .toArray();
 
-      relatedArticles = randomArticles.map(doc => ({
+      relatedArticles = randomArticles.map((doc) => ({
         _id: doc._id?.toString(),
         ...doc,
       }));
 
-      console.log('✅ [RELATED] Found', relatedArticles.length, 'random related articles');
+      console.log(
+        "✅ [RELATED] Found",
+        relatedArticles.length,
+        "random related articles",
+      );
     } else {
-      console.log('✅ [RELATED] Found', relatedArticles.length, 'category-based related articles');
+      console.log(
+        "✅ [RELATED] Found",
+        relatedArticles.length,
+        "category-based related articles",
+      );
     }
   } catch (error) {
-    console.error('❌ [RELATED] Error fetching related articles:', error);
+    console.error("❌ [RELATED] Error fetching related articles:", error);
     relatedArticles = [];
   }
 }
 
 // Helper: Extract title
 const getTitle = () => {
-  if (!article) return 'Untitled';
-  return article.title || 'Untitled';
+  if (!article) return "Untitled";
+  return article.title || "Untitled";
 };
 
 // Helper: Extract content (Fixed for Payload CMS rich text)
 const getContent = () => {
-  if (!article) return '';
+  if (!article) return "";
 
   // If content is already a string (HTML), return it
-  if (typeof article.content === 'string') {
+  if (typeof article.content === "string") {
     return article.content;
   }
 
   // Handle Payload CMS rich text blocks
   if (Array.isArray(article.content)) {
-    return article.content.map((block: any) => {
-      // Handle different block types
-      if (block.type === 'paragraph' || block._type === 'block') {
-        if (block.children && Array.isArray(block.children)) {
-          return `<p>${block.children.map((child: any) => {
-            let text = child.text || '';
-            // Apply marks (bold, italic, etc.)
-            if (child.marks && Array.isArray(child.marks)) {
-              if (child.marks.includes('strong')) text = `<strong>${text}</strong>`;
-              if (child.marks.includes('em')) text = `<em>${text}</em>`;
-              if (child.marks.includes('code')) text = `<code>${text}</code>`;
-            }
-            return text;
-          }).join('')}</p>`;
+    return article.content
+      .map((block: any) => {
+        // Handle different block types
+        if (block.type === "paragraph" || block._type === "block") {
+          if (block.children && Array.isArray(block.children)) {
+            return `<p>${block.children
+              .map((child: any) => {
+                let text = child.text || "";
+                // Apply marks (bold, italic, etc.)
+                if (child.marks && Array.isArray(child.marks)) {
+                  if (child.marks.includes("strong"))
+                    text = `<strong>${text}</strong>`;
+                  if (child.marks.includes("em")) text = `<em>${text}</em>`;
+                  if (child.marks.includes("code"))
+                    text = `<code>${text}</code>`;
+                }
+                return text;
+              })
+              .join("")}</p>`;
+          }
         }
-      }
 
-      // Handle headings
-      if (block._type === 'heading' || block.type === 'heading') {
-        const level = block.level || 2;
-        const text = block.children?.map((child: any) => child.text).join('') || '';
-        return `<h${level}>${text}</h${level}>`;
-      }
+        // Handle headings
+        if (block._type === "heading" || block.type === "heading") {
+          const level = block.level || 2;
+          const text =
+            block.children?.map((child: any) => child.text).join("") || "";
+          return `<h${level}>${text}</h${level}>`;
+        }
 
-      // Handle lists
-      if (block._type === 'list' || block.type === 'list') {
-        const listType = block.listType || 'bullet';
-        const tag = listType === 'number' ? 'ol' : 'ul';
-        const items = block.children?.map((item: any) =>
-          `<li>${item.children?.map((child: any) => child.text).join('') || ''}</li>`
-        ).join('') || '';
-        return `<${tag}>${items}</${tag}>`;
-      }
+        // Handle lists
+        if (block._type === "list" || block.type === "list") {
+          const listType = block.listType || "bullet";
+          const tag = listType === "number" ? "ol" : "ul";
+          const items =
+            block.children
+              ?.map(
+                (item: any) =>
+                  `<li>${item.children?.map((child: any) => child.text).join("") || ""}</li>`,
+              )
+              .join("") || "";
+          return `<${tag}>${items}</${tag}>`;
+        }
 
-      // Handle images
-      if (block._type === 'image' || block.type === 'image') {
-        const alt = block.alt || '';
-        const src = block.asset?.url || block.src || '';
-        return `<img src="${src}" alt="${alt}" class="w-full rounded-lg my-4" />`;
-      }
+        // Handle images
+        if (block._type === "image" || block.type === "image") {
+          const alt = block.alt || "";
+          const src = block.asset?.url || block.src || "";
+          return `<img src="${src}" alt="${alt}" class="w-full rounded-lg my-4" />`;
+        }
 
-      // Handle quotes
-      if (block._type === 'blockquote' || block.type === 'blockquote') {
-        const text = block.children?.map((child: any) => child.text).join('') || '';
-        return `<blockquote class="border-l-4 border-orange-500 pl-4 italic my-4">${text}</blockquote>`;
-      }
+        // Handle quotes
+        if (block._type === "blockquote" || block.type === "blockquote") {
+          const text =
+            block.children?.map((child: any) => child.text).join("") || "";
+          return `<blockquote class="border-l-4 border-orange-500 pl-4 italic my-4">${text}</blockquote>`;
+        }
 
-      // Handle code blocks
-      if (block._type === 'code' || block.type === 'code') {
-        return `<pre class="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg overflow-x-auto my-4"><code>${block.code || ''}</code></pre>`;
-      }
+        // Handle code blocks
+        if (block._type === "code" || block.type === "code") {
+          return `<pre class="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg overflow-x-auto my-4"><code>${block.code || ""}</code></pre>`;
+        }
 
-      // Fallback for unknown blocks
-      if (typeof block === 'object' && block.children) {
-        return block.children.map((child: any) => child.text || '').join(' ');
-      }
+        // Fallback for unknown blocks
+        if (typeof block === "object" && block.children) {
+          return block.children.map((child: any) => child.text || "").join(" ");
+        }
 
-      return '';
-    }).join('\n');
+        return "";
+      })
+      .join("\n");
   }
 
-  return '';
+  return "";
 };
 
 // Helper: Extract excerpt
 const getExcerpt = () => {
-  if (!article) return '';
-  if (typeof article.excerpt === 'string') {
+  if (!article) return "";
+  if (typeof article.excerpt === "string") {
     return article.excerpt.substring(0, 160);
   }
   if (Array.isArray(article.excerpt)) {
-    return article.excerpt.map((block: any) => 
-      block.children?.map((child: any) => child.text).join(' ') || ''
-    ).join(' ').substring(0, 160);
+    return article.excerpt
+      .map(
+        (block: any) =>
+          block.children?.map((child: any) => child.text).join(" ") || "",
+      )
+      .join(" ")
+      .substring(0, 160);
   }
-  return '';
+  return "";
 };
 
 // Helper: Extract image
 const getImage = () => {
-  if (!article) return '';
+  if (!article) return "";
   // Prioritize featured_img_url from import
   if (article.featured_img_url) {
     return article.featured_img_url;
@@ -196,45 +278,45 @@ const getImage = () => {
   if (article.featured_image?.url) {
     return article.featured_image.url;
   }
-  return article.featuredImageUrl || '';
+  return article.featuredImageUrl || "";
 };
 
 // Helper: Extract image alt text
 const getImageAlt = () => {
-  if (!article) return '';
+  if (!article) return "";
   if (article.featured_image?.alt) {
     return article.featured_image.alt;
   }
-  return 'Article featured image';
+  return "Article featured image";
 };
 
 // Helper: Decode HTML entities
 const decodeHtmlEntities = (text: string): string => {
-  if (!text) return '';
-  
+  if (!text) return "";
+
   let decoded = text;
-  
+
   // Handle common HTML entities
   const entityMap: Record<string, string> = {
-    '&nbsp;': ' ',
-    '&quot;': '"',
-    '&amp;': '&',
-    '&lt;': '<',
-    '&gt;': '>',
-    '&apos;': "'",
-    '&#039;': "'",
-    '&rsquo;': "'",
-    '&lsquo;': "'",
-    '&rdquo;': '"',
-    '&ldquo;': '"',
-    '&ndash;': '–',
-    '&mdash;': '—',
-    '&hellip;': '…',
-    '&copy;': '©',
-    '&reg;': '®',
-    '&deg;': '°',
+    "&nbsp;": " ",
+    "&quot;": '"',
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&apos;": "'",
+    "&#039;": "'",
+    "&rsquo;": "'",
+    "&lsquo;": "'",
+    "&rdquo;": '"',
+    "&ldquo;": '"',
+    "&ndash;": "–",
+    "&mdash;": "—",
+    "&hellip;": "…",
+    "&copy;": "©",
+    "&reg;": "®",
+    "&deg;": "°",
   };
-  
+
   for (const [ent, char] of Object.entries(entityMap)) {
     decoded = decoded.split(ent).join(char);
   }
@@ -250,29 +332,36 @@ const image = getImage();
 const imageAlt = getImageAlt();
 
 if (!article) {
-  return new Response('Article not found', { status: 404 });
+  return new Response("Article not found", { status: 404 });
 }
 
 // Build JSON-LD schemas
-const articleJsonLd = buildArticleJsonLd(article, 'https://lacuisinedebernard.com');
-const breadcrumbJsonLd = buildBreadcrumbJsonLd(article.title, 'https://lacuisinedebernard.com');
+const articleJsonLd = buildArticleJsonLd(
+  article,
+  "https://lacuisinedebernard.com",
+);
+const breadcrumbJsonLd = buildBreadcrumbJsonLd(
+  article.title,
+  "https://lacuisinedebernard.com",
+);
 
 // Format date
-const date = article.date ? new Date(article.date).toLocaleDateString('en-US', { 
-  year: 'numeric', 
-  month: 'long', 
-  day: 'numeric' 
-}) : '';
+const date = article.date
+  ? new Date(article.date).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    })
+  : "";
 
 // Prepare SEO data
-const keywords = article.tags?.map((t: any) => t.title).join(', ') || title;
+const keywords = article.tags?.map((t: any) => t.title).join(", ") || title;
 const publishDate = article.date || new Date().toISOString();
 const modifiedDate = article.updated || publishDate;
-const author = article.author?.name || 'La Cuisine De Bernard';
+const author = article.author?.name || "La Cuisine De Bernard";
 ---
 
-
-<BaseLayout 
+<BaseLayout
   title={title}
   description={excerpt}
   canonical={`https://lacuisinedebernard.com/${article.slug}`}
@@ -288,51 +377,83 @@ const author = article.author?.name || 'La Cuisine De Bernard';
         <!-- Breadcrumb Navigation -->
         <nav class="mb-6 text-sm">
           <div class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-            <a href="/" class="hover:text-orange-600 dark:hover:text-orange-400 transition-colors">Home</a>
+            <a
+              href="/"
+              class="hover:text-orange-600 dark:hover:text-orange-400 transition-colors"
+              >Home</a
+            >
             <span>/</span>
-            <a href="/articles" class="hover:text-orange-600 dark:hover:text-orange-400 transition-colors">Articles</a>
+            <a
+              href="/articles"
+              class="hover:text-orange-600 dark:hover:text-orange-400 transition-colors"
+              >Articles</a
+            >
             <span>/</span>
-            <span class="text-gray-900 dark:text-white font-semibold truncate">{title}</span>
+            <span class="text-gray-900 dark:text-white font-semibold truncate"
+              >{title}</span
+            >
           </div>
         </nav>
 
         <!-- Featured Image -->
-        {image && (
-          <div class="mb-8 rounded-lg overflow-hidden shadow-lg">
-            <img src={image} alt={imageAlt} class="w-full h-96 object-cover" />
-          </div>
-        )}
+        {
+          image && (
+            <div class="mb-8 rounded-lg overflow-hidden shadow-lg">
+              <img
+                src={image}
+                alt={imageAlt}
+                class="w-full h-96 object-cover"
+              />
+            </div>
+          )
+        }
 
         <!-- Article Header -->
         <article class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-8">
-          <h1 class="text-4xl font-bold text-gray-900 dark:text-white mb-4">{title}</h1>
-          
+          <h1 class="text-4xl font-bold text-gray-900 dark:text-white mb-4">
+            {title}
+          </h1>
+
           <!-- Article Metadata -->
-          <div class="flex flex-wrap gap-4 mb-6 pb-6 border-b border-gray-200 dark:border-gray-700 text-sm">
-            {date && (
-              <span class="text-gray-600 dark:text-gray-400">
-                <i class="fas fa-calendar-alt mr-2 text-orange-600"></i>{date}
-              </span>
-            )}
+          <div
+            class="flex flex-wrap gap-4 mb-6 pb-6 border-b border-gray-200 dark:border-gray-700 text-sm"
+          >
+            {
+              date && (
+                <span class="text-gray-600 dark:text-gray-400">
+                  <i class="fas fa-calendar-alt mr-2 text-orange-600" />
+                  {date}
+                </span>
+              )
+            }
             <span class="text-gray-600 dark:text-gray-400">
               <i class="fas fa-user mr-2 text-orange-600"></i>{author}
             </span>
-            {article.categories && article.categories.length > 0 && (
-              <span class="text-gray-600 dark:text-gray-400">
-                <i class="fas fa-tag mr-2 text-orange-600"></i>
-                {article.categories.map((cat: any) => cat.title).join(', ')}
-              </span>
-            )}
+            {
+              article.categories && article.categories.length > 0 && (
+                <span class="text-gray-600 dark:text-gray-400">
+                  <i class="fas fa-tag mr-2 text-orange-600" />
+                  {article.categories.map((cat: any) => cat.title).join(", ")}
+                </span>
+              )
+            }
           </div>
 
           <!-- Article Content -->
           <div class="prose dark:prose-invert max-w-none mb-8">
-            <div class="article-content text-gray-700 dark:text-gray-300 leading-relaxed" set:html={content} />
+            <div
+              class="article-content text-gray-700 dark:text-gray-300 leading-relaxed"
+              set:html={content}
+            />
           </div>
 
           <!-- Social Share Icons -->
           <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Share this article</h3>
+            <h3
+              class="text-lg font-semibold text-gray-900 dark:text-white mb-4"
+            >
+              Share this article
+            </h3>
             <div class="flex gap-4">
               <a
                 href={`https://www.facebook.com/sharer/sharer.php?u=https://lacuisinedebernard.com/${article.slug?.current}`}
@@ -374,84 +495,100 @@ const author = article.author?.name || 'La Cuisine De Bernard';
 
         <!-- Comments Section - Using Giscus -->
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">Comments</h2>
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+            Comments
+          </h2>
           <div id="comments-section">
-            <script src="https://giscus.app/client.js"
-                    data-repo="atoolsood-collab/comments"
-                    data-repo-id="R_kgDORHZbjw"
-                    data-category="General"
-                    data-category-id="DIC_kwDORHZbj84C1zio"
-                    data-mapping="pathname"
-                    data-strict="0"
-                    data-reactions-enabled="1"
-                    data-emit-metadata="0"
-                    data-input-position="bottom"
-                    data-theme="preferred_color_scheme"
-                    data-lang="en"
-                    crossorigin="anonymous"
-                    async>
-            </script>
+            <script
+              src="https://giscus.app/client.js"
+              data-repo="lcdb-dev/Comments"
+              data-repo-id="R_kgDORHghQg"
+              data-category="General"
+              data-category-id="DIC_kwDORHghQs4C1z8P"
+              data-mapping="pathname"
+              data-strict="0"
+              data-reactions-enabled="1"
+              data-emit-metadata="0"
+              data-input-position="bottom"
+              data-theme="preferred_color_scheme"
+              data-lang="en"
+              crossorigin="anonymous"
+              async
+            ></script>
           </div>
         </div>
 
         <!-- You Might Like Section -->
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">You might like</h2>
-          {relatedArticles && relatedArticles.length > 0 ? (
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {relatedArticles.map((relatedArticle: any) => {
-                const imageUrl = processArticleImageUrl(relatedArticle);
-                return (
-                  <a
-                    href={`/${relatedArticle.slug}`}
-                    class="group bg-white dark:bg-gray-700 rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all transform hover:scale-105"
-                  >
-                    {imageUrl ? (
-                      <div class="relative overflow-hidden bg-gray-200 h-48">
-                        <img
-                          src={imageUrl}
-                          alt={relatedArticle.title || 'Article image'}
-                          class="w-full h-full object-cover group-hover:scale-110 transition-transform"
-                        />
-                      </div>
-                    ) : (
-                      <div class="relative overflow-hidden bg-gradient-to-br from-orange-100 to-orange-200 dark:from-orange-900 dark:to-orange-800 h-48 flex items-center justify-center">
-                        <div class="text-orange-600 dark:text-orange-400 text-4xl">
-                          <i class="fas fa-utensils"></i>
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+            You might like
+          </h2>
+          {
+            relatedArticles && relatedArticles.length > 0 ? (
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {relatedArticles.map((relatedArticle: any) => {
+                  const imageUrl = processArticleImageUrl(relatedArticle);
+                  return (
+                    <a
+                      href={`/${relatedArticle.slug}`}
+                      class="group bg-white dark:bg-gray-700 rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all transform hover:scale-105"
+                    >
+                      {imageUrl ? (
+                        <div class="relative overflow-hidden bg-gray-200 h-48">
+                          <img
+                            src={imageUrl}
+                            alt={relatedArticle.title || "Article image"}
+                            class="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                          />
                         </div>
+                      ) : (
+                        <div class="relative overflow-hidden bg-gradient-to-br from-orange-100 to-orange-200 dark:from-orange-900 dark:to-orange-800 h-48 flex items-center justify-center">
+                          <div class="text-orange-600 dark:text-orange-400 text-4xl">
+                            <i class="fas fa-utensils" />
+                          </div>
+                        </div>
+                      )}
+                      <div class="p-4">
+                        <h3 class="font-bold text-gray-900 dark:text-white mb-2 line-clamp-2 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
+                          {relatedArticle.title || "Untitled Article"}
+                        </h3>
+                        {relatedArticle.excerpt && (
+                          <p class="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
+                            {relatedArticle.excerpt.length > 100
+                              ? decodeHtmlEntities(
+                                  relatedArticle.excerpt
+                                    .replace(/<[^>]*>/g, "")
+                                    .trim(),
+                                ).substring(0, 100) + "..."
+                              : decodeHtmlEntities(
+                                  relatedArticle.excerpt
+                                    .replace(/<[^>]*>/g, "")
+                                    .trim(),
+                                )}
+                          </p>
+                        )}
+                        {relatedArticle.date && (
+                          <span class="text-xs text-gray-500 dark:text-gray-500">
+                            {new Date(relatedArticle.date).toLocaleDateString()}
+                          </span>
+                        )}
                       </div>
-                    )}
-                    <div class="p-4">
-                      <h3 class="font-bold text-gray-900 dark:text-white mb-2 line-clamp-2 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
-                        {relatedArticle.title || 'Untitled Article'}
-                      </h3>
-                      {relatedArticle.excerpt && (
-                        <p class="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
-                          {relatedArticle.excerpt.length > 100
-                            ? decodeHtmlEntities(relatedArticle.excerpt.replace(/<[^>]*>/g, '').trim()).substring(0, 100) + '...'
-                            : decodeHtmlEntities(relatedArticle.excerpt.replace(/<[^>]*>/g, '').trim())
-                          }
-                        </p>
-                      )}
-                      {relatedArticle.date && (
-                        <span class="text-xs text-gray-500 dark:text-gray-500">
-                          {new Date(relatedArticle.date).toLocaleDateString()}
-                        </span>
-                      )}
-                    </div>
-                  </a>
-                );
-              })}
-            </div>
-          ) : (
-            <div class="text-center text-gray-500 dark:text-gray-400 py-8">
-              <div class="mb-4">
-                <i class="fas fa-search text-4xl text-gray-300 dark:text-gray-600"></i>
+                    </a>
+                  );
+                })}
               </div>
-              <p class="text-lg font-medium mb-2">No related articles found</p>
-              <p class="text-sm">Check out our other recipes and articles!</p>
-            </div>
-          )}
+            ) : (
+              <div class="text-center text-gray-500 dark:text-gray-400 py-8">
+                <div class="mb-4">
+                  <i class="fas fa-search text-4xl text-gray-300 dark:text-gray-600" />
+                </div>
+                <p class="text-lg font-medium mb-2">
+                  No related articles found
+                </p>
+                <p class="text-sm">Check out our other recipes and articles!</p>
+              </div>
+            )
+          }
         </div>
       </div>
 
@@ -468,10 +605,14 @@ const author = article.author?.name || 'La Cuisine De Bernard';
 </BaseLayout>
 
 <script>
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener("DOMContentLoaded", () => {
     // ===== WordPress Recipe Ingredient Servings Multiplier =====
-    const servingButtons = document.querySelectorAll('.wprm-recipe-adjustable-servings');
-    const ingredientAmounts = document.querySelectorAll('.wprm-recipe-ingredient-amount');
+    const servingButtons = document.querySelectorAll(
+      ".wprm-recipe-adjustable-servings",
+    );
+    const ingredientAmounts = document.querySelectorAll(
+      ".wprm-recipe-ingredient-amount",
+    );
 
     // Store original amounts
     const originalAmounts = new Map();
@@ -479,17 +620,18 @@ const author = article.author?.name || 'La Cuisine De Bernard';
       originalAmounts.set(index, parseFloat(el.textContent));
     });
 
-    servingButtons.forEach(button => {
-      button.addEventListener('click', () => {
+    servingButtons.forEach((button) => {
+      button.addEventListener("click", () => {
         const multiplier = parseInt(button.dataset.multiplier);
-        
+
         // Update all ingredient amounts
         ingredientAmounts.forEach((el, index) => {
           const original = originalAmounts.get(index);
           if (original) {
             const updated = original * multiplier;
             // Round to 2 decimal places
-            el.textContent = updated % 1 === 0 ? updated.toString() : updated.toFixed(2);
+            el.textContent =
+              updated % 1 === 0 ? updated.toString() : updated.toFixed(2);
           }
         });
       });
@@ -670,7 +812,8 @@ const author = article.author?.name || 'La Cuisine De Bernard';
     background: #f0f7ff !important;
   }
 
-  .article-content :global(.wprm-recipe-adjustable-servings.wprm-toggle-active) {
+  .article-content
+    :global(.wprm-recipe-adjustable-servings.wprm-toggle-active) {
     background: #0066cc !important;
     color: #ffffff !important;
     border-color: #0066cc !important;
@@ -814,7 +957,7 @@ const author = article.author?.name || 'La Cuisine De Bernard';
     padding: 0.3rem 0.6rem;
     border-radius: 4px;
     font-size: 0.9rem;
-    font-family: 'Monaco', 'Courier New', monospace;
+    font-family: "Monaco", "Courier New", monospace;
   }
 
   .article-content :global(pre) {
@@ -875,8 +1018,6 @@ const author = article.author?.name || 'La Cuisine De Bernard';
   .reviews-section {
     display: none !important;
   }
-
-
 
   /* ===== FOOTER ===== */
   .article-footer {

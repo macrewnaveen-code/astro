@@ -4,10 +4,11 @@
   "version": "0.0.1",
   "scripts": {
     "dev": "set NODE_ENV=development && astro dev",
-    "build": "set NODE_ENV=production && astro build",
+    "build": "set NODE_ENV=production && npm run generate-search-index && astro build",
     "preview": "astro preview",
     "astro": "astro",
     "payload": "tsx server.ts",
+    "generate-search-index": "node scripts/generate-search-index.mjs",
     "index:algolia": "node scripts/index-algolia.js",
     "reindex:articles": "node scripts/reindex-articles.mjs",
     "parse:articles": "node scripts/parse-articles-csv.mjs",
