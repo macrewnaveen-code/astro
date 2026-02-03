@@ -10,16 +10,14 @@ import GlobalAbout from "../components/GlobalAbout.astro";
 import GlobalFooter from "../components/GlobalFooter.astro";
 import { getArticlesPage as getArticlesPagePayload, getArticlesCount } from "../lib/payload.client";
 import { getArticlesFromMongo, getArticlesCountFromMongo } from "../lib/mongo.server";
-import { SpeedInsights } from "@vercel/speed-insights/next"
 // Enable SSG with ISR for homepage
 export const prerender = true;
 
-// Read current page from URL query param (e.g. ?page=2)
-const url = new URL(Astro.request.url);
-const currentPage = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
-const articlesPerPage = 10; // keep in sync with MainContent
+// Static homepage - show first page only for SSG
+const currentPage = 1; // Always show page 1 for SSG
+const articlesPerPage = 10;
 
-// Server-side pagination: fetch directly from MongoDB for featured images
+// Build-time pagination: fetch directly from MongoDB for featured images
 let articles = await getArticlesFromMongo(currentPage, articlesPerPage);
 console.log('📦 ARTICLES FETCHED (MongoDB):', articles.length);
 

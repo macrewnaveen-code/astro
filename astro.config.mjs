@@ -1,6 +1,5 @@
 // @ts-check
-import { defineConfig } from 'astro/config';
-import vercel from '@astrojs/vercel';
+import { defineConfig } from 'astro/config';iiimimport vercel from '@astrojs/vercel';
 
 const isDev = process.env.NODE_ENV === 'development';
 const siteUrl = isDev
@@ -21,8 +20,8 @@ export default defineConfig({
   }),
 
   vite: {
-    ssr: {
-      external: ['svgo'],
+ ['svgo'],
+ernal: ['svgo'],
     },
   },
 

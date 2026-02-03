@@ -3,13 +3,13 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import { getAllCategoriesFromMongo, getArticlesFromMongo } from '../../lib/mongo.server';
 import { processArticleImageUrl } from '../../utils/cdnUrlReplacer';
 
-// Enable ISR - pre-generate popular categories, others on-demand
+// Pure SSG - generate ALL categories at build time
 export const prerender = true;
 
 export async function getStaticPaths() {
   const categories = await getAllCategoriesFromMongo();
 
-  // For ISR: Pre-generate all categories since there are likely fewer categories than articles
+  // For SSG: Generate ALL categories at build time
   return categories.map((cat: any) => ({
     params: { slug: cat.slug },
     props: { category: cat }
@@ -17,27 +17,11 @@ export async function getStaticPaths() {
 }
 
 interface Props {
-  category?: any; // Optional for ISR
+  category: any; // Required for SSG
 }
 
-const { category: preGeneratedCategory } = Astro.props;
+const { category } = Astro.props;
 const { slug } = Astro.params;
-
-// For ISR: If category wasn't pre-generated, fetch it on-demand
-let category = preGeneratedCategory;
-if (!category && slug) {
-  console.log(`🔄 [ISR] Generating category on-demand: ${slug}`);
-  try {
-    const allCategories = await getAllCategoriesFromMongo();
-    category = allCategories.find((cat: any) => cat.slug === slug);
-    if (!category) {
-      return new Response('Category not found', { status: 404 });
-    }
-  } catch (error) {
-    console.error(`❌ [ISR] Error fetching category ${slug}:`, error);
-    return new Response('Error loading category', { status: 500 });
-  }
-}
 
 if (!category) {
   return new Response('Category not found', { status: 404 });

@@ -1,59 +1,67 @@
-import { payloadFetch } from '../../lib/payload.client';
+import type { APIRoute } from 'astro';
+import { getAllArticlesFromMongo } from '../../lib/mongo.server';
 
-export async function GET({ url }: { url: URL }) {
-  const searchQuery = url.searchParams.get('q') || '';
-
-  console.log(`🔎 API: Received search query: "${searchQuery}"`);
-
-  if (!searchQuery || !searchQuery.trim()) {
-    console.log(`ℹ️ API: Empty search query provided`);
-    return new Response(JSON.stringify({ results: [] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-
+export const GET: APIRoute = async ({ request }) => {
   try {
-    console.log(`🔎 API: Fetching from Sanity with query for: "${searchQuery}"`);
-    
-    // Search articles using Sanity GROQ - match in title, excerpt, or content
-    const results = await sanityFetch({
-      query: `
-        *[_type == "article" && (
-          title match "${searchQuery}*" || 
-          excerpt match "${searchQuery}*" || 
-          content match "${searchQuery}*"
-        )] | order(date desc) {
-          _id,
-          title,
-          slug,
-          excerpt,
-          date,
-          featuredImage,
-          tags[]->{ _id, title, slug },
-          categories[]->{ _id, title, slug }
-        }
-      `,
-      tags: ['search']
-    });
+    const url = new URL(request.url);
+    const query = url.searchParams.get('q') || '';
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = parseInt(url.searchParams.get('limit') || '20');
 
-    console.log(`✅ API: Search returned ${results?.length || 0} results`);
+    if (!query || query.length < 2) {
+      return new Response(JSON.stringify({
+        success: false,
+        message: 'Query must be at least 2 characters long'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
 
-    return new Response(JSON.stringify({ results: results || [] }), {
+    // Get all articles for search
+    const allArticles = await getAllArticlesFromMongo();
+
+    // Simple text search in title and content
+    const searchResults = allArticles
+      .filter(article => {
+        const title = (article.title || '').toLowerCase();
+        const content = (article.content || '').toLowerCase();
+        const searchTerm = query.toLowerCase();
+
+        return title.includes(searchTerm) || content.includes(searchTerm);
+      })
+      .slice((page - 1) * limit, page * limit)
+      .map(article => ({
+        id: article._id,
+        title: article.title,
+        slug: article.slug,
+        excerpt: article.excerpt,
+        date: article.date,
+        categories: article.categories,
+        tags: article.tags
+      }));
+
+    return new Response(JSON.stringify({
+      success: true,
+      query,
+      page,
+      limit,
+      total: searchResults.length,
+      results: searchResults
+    }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
+
   } catch (error) {
-    console.error(`❌ API: Search error:`, error);
-    return new Response(
-      JSON.stringify({
-        error: 'Search failed',
-        results: []
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    console.error('Search API error:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      message: 'Search failed',
+      error: error.message
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
-}
+};

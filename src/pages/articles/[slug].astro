@@ -2,7 +2,6 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { payloadFetch } from '../../lib/payload.client';
 import { getAllArticlesFromMongo, getArticleBySlugFromMongo } from '../../lib/mongo.server';
-import CommentForm from '../../components/CommentForm.astro';
 
 export const prerender = true;
 
@@ -112,105 +111,30 @@ console.log('📸 Article featured image:', {
           <a href="/" class="text-orange-400 hover:text-orange-300">← Back to articles</a>
         </div>
 
-        {/* Comment Form */}
-        <div class="mt-12">
-          <CommentForm slug={article.slug} />
+        {/* Comments Section - Using Giscus */}
+        <div class="mt-12 bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">Comments</h2>
+          <div id="comments-section">
+            <script src="https://giscus.app/client.js"
+                    data-repo="atoolsood-collab/comments"
+                    data-repo-id="R_kgDORHZbjw"
+                    data-category="General"
+                    data-category-id="DIC_kwDORHZbj84C1zio"
+                    data-mapping="pathname"
+                    data-strict="0"
+                    data-reactions-enabled="1"
+                    data-emit-metadata="0"
+                    data-input-position="bottom"
+                    data-theme="preferred_color_scheme"
+                    data-lang="en"
+                    crossorigin="anonymous"
+                    async>
+            </script>
+          </div>
         </div>
       </article>
     </div>
   </main>
-
-  <script is:inline>
-    (function() {
-      console.log('%c✨ COMMENTS SCRIPT LOADED', 'color: green; font-size: 14px; font-weight: bold;');
-      
-      // Get slug from current URL
-      const urlPath = window.location.pathname;
-      const slug = urlPath.split('/articles/')[1].replace(/\/$/, '');
-      console.log('Detected slug from URL:', slug);
-      
-      async function loadComments() {
-        console.log('%c🔄 FETCHING COMMENTS...', 'color: blue; font-weight: bold;');
-        try {
-          const url = '/api/comments?slug=' + encodeURIComponent(slug);
-          console.log('API URL:', url);
-          
-          const response = await fetch(url);
-          console.log('Response Status:', response.status, response.statusText);
-          
-          if (!response.ok) {
-            throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-          }
-          
-          const comments = await response.json();
-          console.log('%c✅ RECEIVED COMMENTS:', 'color: green; font-weight: bold;', comments);
-          console.log('Comment count:', comments.length);
-          
-          const container = document.getElementById('comments-display');
-          const counter = document.getElementById('comment-count');
-          
-          if (!container) {
-            console.error('❌ Container #comments-display not found!');
-            return;
-          }
-          
-          if (!counter) {
-            console.error('❌ Counter #comment-count not found!');
-            return;
-          }
-          
-          counter.textContent = comments.length;
-          
-          if (!comments || comments.length === 0) {
-            container.innerHTML = '<p class="text-gray-400">No comments yet. Be the first!</p>';
-            return;
-          }
-          
-          let html = '';
-          for (let i = 0; i < comments.length; i++) {
-            const c = comments[i];
-            console.log('  Comment ' + (i + 1) + ': ' + c.author);
-            const date = new Date(c.date).toLocaleDateString('en-US', {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-            });
-            
-            html += '<div class="bg-gray-700 rounded-lg p-5 border-l-4 border-orange-400">';
-            html += '<div class="flex items-center justify-between mb-2">';
-            html += '<h3 class="font-bold text-white">' + (c.author || 'Anonymous') + '</h3>';
-            html += '<time class="text-sm text-gray-400">' + date + '</time>';
-            html += '</div>';
-            if (c.email) {
-              html += '<p class="text-xs text-gray-500 mb-3">✉️ ' + c.email + '</p>';
-            }
-            html += '<p class="text-gray-300 leading-relaxed">' + (c.content || '') + '</p>';
-            html += '</div>';
-          }
-          
-          container.innerHTML = html;
-          console.log('%c✨ RENDERED!', 'color: green; font-size: 14px;');
-          
-        } catch (error) {
-          console.error('%c❌ ERROR:', 'color: red; font-weight: bold;', error);
-          const container = document.getElementById('comments-display');
-          if (container) {
-            container.innerHTML = '<p class="text-red-400">Error: ' + error.message + '</p>';
-          }
-        }
-      }
-      
-      // Wait for DOM to be ready
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', loadComments);
-      } else {
-        loadComments();
-      }
-      
-      // Auto-refresh every 5 seconds
-      setInterval(loadComments, 5000);
-    })();
-  </script>
 
   <style>
     .prose :global(h2) {

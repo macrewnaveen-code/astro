@@ -19,20 +19,35 @@ export async function getMongoConnection() {
     }
 
     console.log('🔌 [BUILD] Establishing MongoDB connection...');
-    const connectionStartTime = Date.now();
+    const maxRetries = 3;
+    let attempt = 0;
+    let lastError: any = null;
 
-    const client = new MongoClient(mongoUri);
-    await client.connect();
+    while (attempt < maxRetries) {
+      attempt++;
+      const connectionStartTime = Date.now();
+      try {
+        const client = new MongoClient(mongoUri);
+        await client.connect();
 
-    const connectionEndTime = Date.now();
-    const connectionDuration = ((connectionEndTime - connectionStartTime) / 1000).toFixed(2);
-    console.log(`✅ [BUILD] MongoDB connected successfully in ${connectionDuration}s`);
+        const connectionEndTime = Date.now();
+        const connectionDuration = ((connectionEndTime - connectionStartTime) / 1000).toFixed(2);
+        console.log(`✅ [BUILD] MongoDB connected successfully in ${connectionDuration}s (attempt ${attempt})`);
 
-    const db = client.db('lcdb');
+        const db = client.db('lcdb');
+        cachedClient = client;
+        cachedDb = db;
+        return db;
+      } catch (err) {
+        lastError = err;
+        console.warn(`⚠️ [BUILD] MongoDB connect attempt ${attempt} failed:`, err && err.message ? err.message : err);
+        const backoffMs = 250 * Math.pow(2, attempt - 1);
+        await new Promise(res => setTimeout(res, backoffMs));
+      }
+    }
 
-    cachedClient = client;
-    cachedDb = db;
-    return db;
+    console.error('❌ [BUILD] All MongoDB connection attempts failed');
+    throw lastError;
   } catch (error) {
     console.error('❌ [BUILD] MongoDB connection error:', error);
     throw error;
@@ -101,15 +116,33 @@ export async function getArticlesCountFromMongo(): Promise<number> {
 
 export async function getRelatedArticlesFromMongo(categoryIds: any[], excludeArticleId: string, limit = 6) {
   try {
+    // Convert excludeArticleId to ObjectId if it's a string
+    let excludeId = excludeArticleId;
+    if (typeof excludeArticleId === 'string' && excludeArticleId.match(/^[0-9a-fA-F]{24}$/)) {
+      excludeId = new ObjectId(excludeArticleId);
+    }
+
+    console.log('🔍 [RELATED] Exclude ID:', excludeId);
+
     const db = await getMongoConnection();
     const articlesCollection = db.collection('articles');
+
+    // Convert string IDs to ObjectIds if needed
+    const objectIds = categoryIds.map(id => {
+      if (typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/)) {
+        return new ObjectId(id);
+      }
+      return id;
+    });
+
+    console.log('🔍 [RELATED] Converted category IDs:', objectIds);
 
     const relatedArticles = await articlesCollection
       .aggregate([
         {
           $match: {
-            'categories': { $in: categoryIds },
-            '_id': { $ne: excludeArticleId },
+            'categories': { $in: objectIds },
+            '_id': { $ne: excludeId },
             $or: [
               {
                 $and: [
@@ -118,7 +151,8 @@ export async function getRelatedArticlesFromMongo(categoryIds: any[], excludeArt
                   { title: { $ne: '' } }
                 ]
               },
-              { 'featured_image.asset': { $exists: true } }
+              { 'featured_image.asset': { $exists: true } },
+              { 'featured_img_url': { $exists: true } }
             ]
           }
         },
@@ -133,6 +167,8 @@ export async function getRelatedArticlesFromMongo(categoryIds: any[], excludeArt
         { $limit: limit }
       ])
       .toArray();
+
+    console.log('✅ [RELATED] Found', relatedArticles.length, 'related articles');
 
     return relatedArticles.map(doc => ({
       _id: doc._id?.toString(),
@@ -194,9 +230,37 @@ export async function getAllArticlesFromMongo() {
 
 export async function getArticleBySlugFromMongo(slug: string) {
   try {
+    // Support Unicode slugs (Arabic, etc.) and encoded/decoded/trimmed variants
+    const decodeSafe = (s: string) => {
+      try { return decodeURIComponent(s); } catch { return s; }
+    };
+    const add = (set: Set<string>, value?: string) => {
+      if (!value || typeof value !== 'string') return;
+      set.add(value);
+      set.add(value.toLowerCase());
+      // strip leading/trailing slashes
+      set.add(value.replace(/^\/+|\/+$/g, ''));
+      set.add(value.replace(/^\/+|\/+$/g, '').toLowerCase());
+    };
+
+    const variantsSet = new Set<string>();
+    const decoded = decodeSafe(slug);
+    const encoded = encodeURIComponent(decoded);
+
+    add(variantsSet, slug);
+    add(variantsSet, decoded);
+    add(variantsSet, encoded);
+
+    const variants = Array.from(variantsSet).filter(Boolean);
+
     const db = await getMongoConnection();
     const articlesCollection = db.collection('articles');
-    const article = await articlesCollection.findOne({ slug });
+    const article = await articlesCollection.findOne({
+      $or: [
+        { slug: { $in: variants } },             // plain string slug
+        { 'slug.current': { $in: variants } },   // Sanity-style { current: '...' }
+      ],
+    });
 
     if (!article) return null;
 
@@ -317,6 +381,45 @@ export async function getAllCategoriesFromMongo() {
     }));
   } catch (error) {
     console.error('❌ Error fetching categories from MongoDB:', error);
+    return [];
+  }
+}
+
+export async function getAllTagsFromMongo() {
+  try {
+    const db = await getMongoConnection();
+    const tagsCollection = db.collection('tags');
+
+    const tags = await tagsCollection.find({}).toArray();
+
+    return tags.map(doc => ({
+      _id: doc._id?.toString(),
+      ...doc,
+    }));
+  } catch (error) {
+    console.error('❌ Error fetching tags from MongoDB:', error);
+    return [];
+  }
+}
+
+export async function getArticlesByTagFromMongo(tagName: string, limit = 1000) {
+  try {
+    const db = await getMongoConnection();
+    const articlesCollection = db.collection('articles');
+
+    const articles = await articlesCollection
+      .find({
+        tags: { $in: [tagName] }
+      })
+      .limit(limit)
+      .toArray();
+
+    return articles.map(doc => ({
+      _id: doc._id?.toString(),
+      ...doc,
+    }));
+  } catch (error) {
+    console.error('❌ Error fetching articles by tag from MongoDB:', error);
     return [];
   }
 }

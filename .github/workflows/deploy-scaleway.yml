@@ -1,0 +1,85 @@
+name: Deploy to Scaleway Object Storage
+
+on:
+  push:
+    branches: [ main, master ]
+  repository_dispatch:
+    types: [ payload-update ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build static site
+      run: npm run build
+      env:
+        NODE_ENV: production
+        MONGODB_URI: ${{ secrets.MONGODB_URI }}
+
+    - name: Install Scaleway CLI
+      run: |
+        curl -o scw.tar.gz -L "https://github.com/scaleway/scaleway-cli/releases/download/v2.21.0/scaleway-cli_2.21.0_linux_amd64.tar.gz"
+        tar -xzf scw.tar.gz
+        sudo mv scaleway-cli_2.21.0_linux_amd64/scw /usr/local/bin/
+        scw version
+
+    - name: Configure Scaleway CLI
+      run: |
+        scw config set access-key ${{ secrets.SCW_ACCESS_KEY }}
+        scw config set secret-key ${{ secrets.SCW_SECRET_KEY }}
+        scw config set default-project-id ${{ secrets.SCW_PROJECT_ID }}
+        scw config set default-region fr-par
+
+    - name: Create Object Storage bucket (if not exists)
+      run: |
+        scw object bucket create astro-static-site --region fr-par || echo "Bucket already exists"
+
+    - name: Upload static files to Scaleway Object Storage
+      run: |
+        echo "📤 Uploading static files to Scaleway Object Storage..."
+        scw object upload dist/ --bucket astro-static-site --region fr-par --recursive
+
+    - name: Configure bucket for public access
+      run: |
+        scw object bucket set-acl astro-static-site --region fr-par --acl public-read
+
+    - name: Invalidate CDN cache (if CDN is configured)
+      run: |
+        # If you have a CDN configured, invalidate it here
+        # scw cdn invalidate YOUR_CDN_ID --region fr-par || echo "No CDN configured"
+
+    - name: Verify deployment
+      run: |
+        echo "🔍 Verifying deployment..."
+        # Check if index.html exists
+        scw object list astro-static-site --region fr-par | grep "index.html" || echo "Warning: index.html not found"
+
+        # Get bucket URL
+        BUCKET_URL="https://astro-static-site.s3.fr-par.scw.cloud"
+        echo "🌐 Site deployed to: $BUCKET_URL"
+        echo "BUCKET_URL=$BUCKET_URL" >> $GITHUB_ENV
+
+    - name: Notify deployment success
+      if: success()
+      run: |
+        echo "✅ Deployment successful!"
+        echo "🌐 Site URL: https://astro-static-site.s3.fr-par.scw.cloud"
+
+    - name: Notify deployment failure
+      if: failure()
+      run: |
+        echo "❌ Deployment failed!"
+        exit 1

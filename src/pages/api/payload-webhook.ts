@@ -1,85 +1,45 @@
-// Webhook endpoint for Payload CMS content revalidation
-// This enables ISR (Incremental Static Regeneration)
+import type { APIRoute } from 'astro';
 
-// Mark as server-rendered for API functionality
-export const prerender = false;
-
-export async function POST({ request }: { request: Request }) {
+export const POST: APIRoute = async ({ request }) => {
   try {
     const body = await request.json();
-    const { type, doc } = body;
+    console.log('Webhook received:', body);
 
-    console.log('🔄 Webhook received:', { type, docId: doc?.id, slug: doc?.slug });
+    // Verify webhook secret if needed
+    const signature = request.headers.get('x-payload-signature');
+    // Add signature verification logic here if needed
 
-    // Validate webhook secret (add security in production)
-    const webhookSecret = process.env.PAYLOAD_WEBHOOK_SECRET;
-    const receivedSecret = request.headers.get('x-payload-webhook-secret');
+    // Trigger rebuild (you can integrate with GitHub Actions, Vercel, etc.)
+    // For now, just log the webhook
+    console.log('Payload webhook triggered for:', {
+      type: body.type,
+      operation: body.operation,
+      id: body.id
+    });
 
-    if (webhookSecret && receivedSecret !== webhookSecret) {
-      console.error('❌ Invalid webhook secret');
-      return new Response('Unauthorized', { status: 401 });
-    }
-
-    // Handle different event types
-    switch (type) {
-      case 'create':
-      case 'update':
-        if (doc && doc.slug) {
-          // Revalidate the specific article page
-          console.log(`🔄 Revalidating article: ${doc.slug}`);
-
-          // In production, this would trigger Vercel's ISR revalidation
-          // For now, we'll log the revalidation request
-          return new Response(JSON.stringify({
-            revalidated: true,
-            type: 'article',
-            slug: doc.slug,
-            message: 'Article page revalidation triggered'
-          }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        }
-        break;
-
-      case 'delete':
-        console.log(`🗑️ Article deleted: ${doc?.slug}`);
-        // Handle deletion revalidation if needed
-        break;
-
-      default:
-        console.log(`⚠️ Unknown webhook type: ${type}`);
-    }
+    // Here you could:
+    // 1. Trigger GitHub Actions rebuild
+    // 2. Clear cache
+    // 3. Send notification
+    // 4. Update search index
 
     return new Response(JSON.stringify({
-      received: true,
-      type,
-      message: 'Webhook processed'
+      success: true,
+      message: 'Webhook processed successfully'
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
-    console.error('❌ Webhook error:', error);
+    console.error('Webhook error:', error);
     return new Response(JSON.stringify({
-      error: 'Webhook processing failed',
-      message: error.message
+      success: false,
+      message: 'Webhook processing failed',
+      error: error.message
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
   }
-}
-
-// Handle GET requests for testing
-export async function GET() {
-  return new Response(JSON.stringify({
-    message: 'Payload CMS Webhook Endpoint',
-    status: 'active',
-    usage: 'POST requests from Payload CMS webhooks'
-  }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' }
-  });
-}
+};

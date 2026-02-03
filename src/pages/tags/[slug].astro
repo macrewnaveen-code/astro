@@ -1,46 +1,34 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
-import { payloadFetch } from '../../lib/payload.client';
+import { getAllTagsFromMongo, getArticlesByTagFromMongo } from '../../lib/mongo.server';
 import { processArticleImageUrl } from '../../utils/cdnUrlReplacer';
 
-// This page fetches data at runtime for dynamic tag pages
-// export const prerender = true;
+// Pure SSG - generate ALL tags at build time
+export const prerender = true;
 
-// export async function getStaticPaths() {
-//   // Fetch all tags from Payload
-//   const result = await payloadFetch({
-//     endpoint: '/collections/tags?limit=1000',
-//     method: 'GET'
-//   });
-  
-//   const tags = result?.docs || [];
+export async function getStaticPaths() {
+  const tags = await getAllTagsFromMongo();
 
-//   return tags.map((tag: any) => ({
-//     params: { slug: tag.slug },
-//   }));
-// }
+  // For SSG: Generate ALL tags at build time
+  return tags.map((tag: any) => ({
+    params: { slug: tag.slug },
+    props: { tag }
+  }));
+}
 
+interface Props {
+  tag: any; // Required for SSG
+}
+
+const { tag } = Astro.props;
 const { slug } = Astro.params;
-
-// Fetch the tag from Payload
-const tagResult = await payloadFetch({
-  endpoint: `/collections/tags?where[slug][equals]=${slug}&limit=1`,
-  method: 'GET'
-});
-
-const tag = tagResult?.docs?.[0];
 
 if (!tag) {
   return new Response('Tag not found', { status: 404 });
 }
 
-// Fetch all articles with this tag
-const allArticlesWithTag = await payloadFetch({
-  endpoint: `/collections/articles?where[tags.slug][equals]=${slug}&depth=2&limit=1000`,
-  method: 'GET'
-});
-
-const articlesData = allArticlesWithTag?.docs || [];
+// Fetch all articles with this tag at build time
+const articlesData = await getArticlesByTagFromMongo(tag.name || tag.slug);
 
 // Helper functions
 function decodeHtmlEntities(text: string): string {
@@ -112,13 +100,32 @@ function formatDate(dateStr: string): string {
   });
 }
 
+// Normalize articles and helpers
+const allArticlesWithTag = Array.isArray(articlesData) ? articlesData : [];
+
+function articleSlug(a: any) {
+  if (!a) return '';
+  if (a.slug && typeof a.slug === 'object' && a.slug.current) return a.slug.current;
+  if (typeof a.slug === 'string') return a.slug;
+  if (a._id) return a._id;
+  return '';
+}
+
+function categorySlug(c: any) {
+  if (!c) return '';
+  if (c.slug && typeof c.slug === 'object' && c.slug.current) return c.slug.current;
+  if (typeof c.slug === 'string') return c.slug;
+  if (c._id) return c._id;
+  return '';
+}
+
 // Pagination
 const articlesPerPage = 12;
 const currentPage = 1;
-const totalPages = Math.ceil(articlesData.length / articlesPerPage);
+const totalPages = Math.ceil(allArticlesWithTag.length / articlesPerPage);
 const startIdx = (currentPage - 1) * articlesPerPage;
 const endIdx = startIdx + articlesPerPage;
-const paginatedArticles = articlesData.slice(startIdx, endIdx);
+const paginatedArticles = allArticlesWithTag.slice(startIdx, endIdx);
 ---
 
 <BaseLayout title={`#${tag.title}`} description={`Articles tagged with ${tag.title}`}>
@@ -167,7 +174,7 @@ const paginatedArticles = articlesData.slice(startIdx, endIdx);
           {/* Articles Grid */}
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
             {paginatedArticles.map((article: any) => (
-              <a href={`/${article.slug.current}`} class="group h-full">
+              <a href={`/${articleSlug(article)}`} class="group h-full">
                 <div class="bg-gradient-to-b from-gray-800 to-gray-900 rounded-2xl shadow-xl overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-3 h-full flex flex-col border border-gray-700 hover:border-gray-600">
                   {/* Image Container */}
                   {(() => {
@@ -194,7 +201,7 @@ const paginatedArticles = articlesData.slice(startIdx, endIdx);
                       <div class="flex flex-wrap gap-2 mb-4">
                         {article.categories.slice(0, 1).map((cat: any) => (
                           <a 
-                            href={`/categories/${cat.slug.current}`}
+                            href={`/categories/${categorySlug(cat)}`}
                             class="text-xs font-bold text-purple-300 bg-purple-900/50 px-3 py-1 rounded-full hover:bg-purple-900/70 transition border border-purple-700/50"
                           >
                             {cat.title}

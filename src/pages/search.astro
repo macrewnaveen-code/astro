@@ -6,10 +6,18 @@ import { processArticleImageUrl } from "../utils/cdnUrlReplacer";
 export const prerender = false;
 
 // Detect language from request headers or default to 'en'
-const url = new URL(Astro.request.url);
-const pathname = url.pathname;
-const lang = 'en';
-const searchQuery = url.searchParams.get('q') || '';
+let searchQuery = '';
+let lang = 'en';
+try {
+  // Astro.request may be undefined during some build/transform steps; guard it
+  const reqUrl = Astro && Astro.request && Astro.request.url ? Astro.request.url : undefined;
+  const url = reqUrl ? new URL(reqUrl) : null;
+  const pathname = url ? url.pathname : '/';
+  if (url) searchQuery = url.searchParams.get('q') || '';
+} catch (e) {
+  // Fallback: leave searchQuery as empty string
+  searchQuery = '';
+}
 
 const title = translate('nav.search', lang);
 const noResults = translate('common.notFound', lang);
@@ -19,16 +27,16 @@ let searchResults = [];
 if (searchQuery && searchQuery.trim()) {
   try {
     // Search articles using MongoDB
-    console.log(`🔎 Searching for: "${searchQuery}"`);
+    console.log(`?? Searching for: "${searchQuery}"`);
     const { searchArticlesFromMongo } = await import('../lib/mongo.server');
     searchResults = await searchArticlesFromMongo(searchQuery.trim(), 50);
-    console.log(`✅ MongoDB search found ${searchResults?.length || 0} results for "${searchQuery}"`);
+    console.log(`? MongoDB search found ${searchResults?.length || 0} results for "${searchQuery}"`);
   } catch (error) {
-    console.error("❌ MongoDB search error:", error);
+    console.error("? MongoDB search error:", error);
     searchResults = [];
   }
 } else {
-  console.log(`ℹ️ No search query provided (query="${searchQuery}")`);
+  console.log(`?? No search query provided (query="${searchQuery}")`);
 }
 ---
 <style is:global>

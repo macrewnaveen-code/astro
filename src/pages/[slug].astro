@@ -3,69 +3,33 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import RecipeIngredients from '../components/RecipeIngredients.astro';
 import RecipeInstructions from '../components/RecipeInstructions.astro';
 import RecipeNutrition from '../components/RecipeNutrition.astro';
-import CommentForm from '../components/CommentForm.astro';
-import CommentList from '../components/CommentList.astro';
-import SaaSComments from '../components/SaaSComments.astro';
 import GlobalSidebar from '../components/GlobalSidebar.astro';
 import GlobalAbout from '../components/GlobalAbout.astro';
 import GlobalFooter from '../components/GlobalFooter.astro';
+
+// Server-side rendering for dynamic content and real-time data
+export const prerender = false;
 import { payloadFetch } from '../lib/payload.client';
-import { getAllArticlesFromMongo, getArticleBySlugFromMongo, getCommentsByArticleIdFromMongo } from '../lib/mongo.server';
+import { getAllArticlesFromMongo, getArticleBySlugFromMongo, getCommentsByArticleIdFromMongo, getRelatedArticlesFromMongo } from '../lib/mongo.server';
+import { getMongoConnection } from '../lib/mongo.server';
 import { decodeHtmlEntities as decodeEntities } from '../utils/decodeHtmlEntities';
 import { buildArticleJsonLd, buildBreadcrumbJsonLd } from '../utils/buildArticleJsonLd';
 import { processArticleImageUrl } from '../utils/cdnUrlReplacer';
 
-// Enable ISR - pre-generate popular articles, others on-demand
-export const prerender = true;
-
-export async function getStaticPaths() {
-  console.log('🚀 [ISR BUILD] Starting static path generation for popular articles...');
-
-  let articles = await getAllArticlesFromMongo();
-
-  // For ISR: Only pre-generate the first 100 most popular articles
-  // Remaining articles will be generated on-demand
-  const maxStaticArticles = 100;
-
-  if (articles.length > maxStaticArticles) {
-    console.log(`📊 [ISR BUILD] Limiting to ${maxStaticArticles} pre-generated articles (from ${articles.length} total)`);
-    console.log('📊 [ISR BUILD] Remaining articles will be generated on-demand via ISR');
-    articles = articles.slice(0, maxStaticArticles);
-  }
-
-  if (!articles || articles.length === 0) {
-    console.log('⚠️ [ISR BUILD] No articles found in MongoDB');
-    return [];
-  }
-
-  console.log(`✅ [ISR BUILD] Pre-generating ${articles.length} articles at build time`);
-
-  return articles.map((article: any) => ({
-    params: { slug: article.slug },
-    props: { article }
-  }));
-}
+// Dynamic article rendering - fetch from MongoDB on each request
 
 interface Props {
-  article?: any; // Optional for ISR - may not be pre-generated
+  article?: any; // Optional for serverless - fetched dynamically
 }
 
-const { article: preGeneratedArticle } = Astro.props;
 const { slug } = Astro.params;
 
-// For ISR: If article wasn't pre-generated, fetch it on-demand
-let article = preGeneratedArticle;
-if (!article && slug) {
-  console.log(`🔄 [ISR] Generating article on-demand: ${slug}`);
-  try {
-    article = await getArticleBySlugFromMongo(slug);
-    if (!article) {
-      return new Response('Article not found', { status: 404 });
-    }
-  } catch (error) {
-    console.error(`❌ [ISR] Error fetching article ${slug}:`, error);
-    return new Response('Error loading article', { status: 500 });
-  }
+// Fetch article dynamically for serverless rendering
+let article = null;
+try {
+  article = await getArticleBySlugFromMongo(slug);
+} catch (error) {
+  console.error('Error fetching article:', error);
 }
 
 if (!article) {
@@ -77,18 +41,52 @@ if (!article) {
 // TODO: Replace Payload comments with client-side SaaS comments
 const comments = [];
 
-// For ISR: Fetch related articles on-demand (not at build time)
+// For SSG: Fetch related articles at build time
 let relatedArticles: any[] = [];
-if (article && article.categories && article.categories.length > 0) {
+if (article) {
   try {
-    // For ISR, we fetch related articles on-demand
-    relatedArticles = await getRelatedArticlesFromMongo(
-      article.categories.map((cat: any) => cat._id || cat),
-      article._id,
-      3
-    );
+    console.log('🔍 [RELATED] Fetching related articles for article:', article.title);
+
+    // First try to get articles by category
+    if (article.categories && article.categories.length > 0) {
+      const categoryIds = article.categories.map((cat: any) => {
+        if (typeof cat === 'string') return cat;
+        if (cat && cat._id) return cat._id;
+        if (cat && cat.id) return cat.id;
+        return cat;
+      }).filter(id => id);
+
+      console.log('🔍 [RELATED] Trying category-based search with IDs:', categoryIds);
+
+      relatedArticles = await getRelatedArticlesFromMongo(categoryIds, article._id, 3);
+    }
+
+    // If no category-based results, get random articles
+    if (!relatedArticles || relatedArticles.length === 0) {
+      console.log('🔍 [RELATED] No category matches, trying random articles');
+
+      const db = await getMongoConnection();
+      const articlesCollection = db.collection('articles');
+
+      // Get 3 random articles excluding current one
+      const randomArticles = await articlesCollection
+        .aggregate([
+          { $match: { _id: { $ne: article._id } } },
+          { $sample: { size: 3 } }
+        ])
+        .toArray();
+
+      relatedArticles = randomArticles.map(doc => ({
+        _id: doc._id?.toString(),
+        ...doc,
+      }));
+
+      console.log('✅ [RELATED] Found', relatedArticles.length, 'random related articles');
+    } else {
+      console.log('✅ [RELATED] Found', relatedArticles.length, 'category-based related articles');
+    }
   } catch (error) {
-    console.error('Error fetching related articles:', error);
+    console.error('❌ [RELATED] Error fetching related articles:', error);
     relatedArticles = [];
   }
 }
@@ -99,20 +97,78 @@ const getTitle = () => {
   return article.title || 'Untitled';
 };
 
-// Helper: Extract content
+// Helper: Extract content (Fixed for Payload CMS rich text)
 const getContent = () => {
   if (!article) return '';
+
+  // If content is already a string (HTML), return it
   if (typeof article.content === 'string') {
     return article.content;
   }
+
+  // Handle Payload CMS rich text blocks
   if (Array.isArray(article.content)) {
     return article.content.map((block: any) => {
-      if (block._type === 'block' || typeof block === 'object') {
-        return block.children?.map((child: any) => child.text).join('') || '';
+      // Handle different block types
+      if (block.type === 'paragraph' || block._type === 'block') {
+        if (block.children && Array.isArray(block.children)) {
+          return `<p>${block.children.map((child: any) => {
+            let text = child.text || '';
+            // Apply marks (bold, italic, etc.)
+            if (child.marks && Array.isArray(child.marks)) {
+              if (child.marks.includes('strong')) text = `<strong>${text}</strong>`;
+              if (child.marks.includes('em')) text = `<em>${text}</em>`;
+              if (child.marks.includes('code')) text = `<code>${text}</code>`;
+            }
+            return text;
+          }).join('')}</p>`;
+        }
       }
+
+      // Handle headings
+      if (block._type === 'heading' || block.type === 'heading') {
+        const level = block.level || 2;
+        const text = block.children?.map((child: any) => child.text).join('') || '';
+        return `<h${level}>${text}</h${level}>`;
+      }
+
+      // Handle lists
+      if (block._type === 'list' || block.type === 'list') {
+        const listType = block.listType || 'bullet';
+        const tag = listType === 'number' ? 'ol' : 'ul';
+        const items = block.children?.map((item: any) =>
+          `<li>${item.children?.map((child: any) => child.text).join('') || ''}</li>`
+        ).join('') || '';
+        return `<${tag}>${items}</${tag}>`;
+      }
+
+      // Handle images
+      if (block._type === 'image' || block.type === 'image') {
+        const alt = block.alt || '';
+        const src = block.asset?.url || block.src || '';
+        return `<img src="${src}" alt="${alt}" class="w-full rounded-lg my-4" />`;
+      }
+
+      // Handle quotes
+      if (block._type === 'blockquote' || block.type === 'blockquote') {
+        const text = block.children?.map((child: any) => child.text).join('') || '';
+        return `<blockquote class="border-l-4 border-orange-500 pl-4 italic my-4">${text}</blockquote>`;
+      }
+
+      // Handle code blocks
+      if (block._type === 'code' || block.type === 'code') {
+        return `<pre class="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg overflow-x-auto my-4"><code>${block.code || ''}</code></pre>`;
+      }
+
+      // Fallback for unknown blocks
+      if (typeof block === 'object' && block.children) {
+        return block.children.map((child: any) => child.text || '').join(' ');
+      }
+
       return '';
     }).join('\n');
   }
+
   return '';
 };
 
@@ -316,49 +372,84 @@ const author = article.author?.name || 'La Cuisine De Bernard';
           </div>
         </article>
 
-        <!-- Comments Section - Now using SaaS solution -->
-        <SaaSComments />
+        <!-- Comments Section - Using Giscus -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">Comments</h2>
+          <div id="comments-section">
+            <script src="https://giscus.app/client.js"
+                    data-repo="atoolsood-collab/comments"
+                    data-repo-id="R_kgDORHZbjw"
+                    data-category="General"
+                    data-category-id="DIC_kwDORHZbj84C1zio"
+                    data-mapping="pathname"
+                    data-strict="0"
+                    data-reactions-enabled="1"
+                    data-emit-metadata="0"
+                    data-input-position="bottom"
+                    data-theme="preferred_color_scheme"
+                    data-lang="en"
+                    crossorigin="anonymous"
+                    async>
+            </script>
+          </div>
+        </div>
 
         <!-- You Might Like Section -->
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">You might like</h2>
           {relatedArticles && relatedArticles.length > 0 ? (
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {relatedArticles.map((article: any) => (
-                <a
-                  href={`/${article.slug}`}
-                  class="group bg-white dark:bg-gray-700 rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all transform hover:scale-105"
-                >
-                  {processArticleImageUrl(article) && (
-                    <div class="relative overflow-hidden bg-gray-200 h-48">
-                      <img
-                        src={processArticleImageUrl(article)}
-                        alt={article.title}
-                        class="w-full h-full object-cover group-hover:scale-110 transition-transform"
-                      />
+              {relatedArticles.map((relatedArticle: any) => {
+                const imageUrl = processArticleImageUrl(relatedArticle);
+                return (
+                  <a
+                    href={`/${relatedArticle.slug}`}
+                    class="group bg-white dark:bg-gray-700 rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all transform hover:scale-105"
+                  >
+                    {imageUrl ? (
+                      <div class="relative overflow-hidden bg-gray-200 h-48">
+                        <img
+                          src={imageUrl}
+                          alt={relatedArticle.title || 'Article image'}
+                          class="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                        />
+                      </div>
+                    ) : (
+                      <div class="relative overflow-hidden bg-gradient-to-br from-orange-100 to-orange-200 dark:from-orange-900 dark:to-orange-800 h-48 flex items-center justify-center">
+                        <div class="text-orange-600 dark:text-orange-400 text-4xl">
+                          <i class="fas fa-utensils"></i>
+                        </div>
+                      </div>
+                    )}
+                    <div class="p-4">
+                      <h3 class="font-bold text-gray-900 dark:text-white mb-2 line-clamp-2 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
+                        {relatedArticle.title || 'Untitled Article'}
+                      </h3>
+                      {relatedArticle.excerpt && (
+                        <p class="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
+                          {relatedArticle.excerpt.length > 100
+                            ? decodeHtmlEntities(relatedArticle.excerpt.replace(/<[^>]*>/g, '').trim()).substring(0, 100) + '...'
+                            : decodeHtmlEntities(relatedArticle.excerpt.replace(/<[^>]*>/g, '').trim())
+                          }
+                        </p>
+                      )}
+                      {relatedArticle.date && (
+                        <span class="text-xs text-gray-500 dark:text-gray-500">
+                          {new Date(relatedArticle.date).toLocaleDateString()}
+                        </span>
+                      )}
                     </div>
-                  )}
-                  <div class="p-4">
-                    <h3 class="font-bold text-gray-900 dark:text-white mb-2 line-clamp-2 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
-                      {article.title}
-                    </h3>
-                    {article.excerpt && (
-                      <p class="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
-                        {article.excerpt}
-                      </p>
-                    )}
-                    {article.date && (
-                      <span class="text-xs text-gray-500 dark:text-gray-500">
-                        {new Date(article.date).toLocaleDateString()}
-                      </span>
-                    )}
-                  </div>
-                </a>
-              ))}
+                  </a>
+                );
+              })}
             </div>
           ) : (
             <div class="text-center text-gray-500 dark:text-gray-400 py-8">
-              <p>More articles coming soon...</p>
+              <div class="mb-4">
+                <i class="fas fa-search text-4xl text-gray-300 dark:text-gray-600"></i>
+              </div>
+              <p class="text-lg font-medium mb-2">No related articles found</p>
+              <p class="text-sm">Check out our other recipes and articles!</p>
             </div>
           )}
         </div>
